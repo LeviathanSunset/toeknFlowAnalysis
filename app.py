@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import sys
 import os
@@ -274,60 +274,141 @@ class StreamlitTokenFlowApp:
                 )
             
             with col2:
-                value_filter = st.sidebar.number_input(
-                    "价值过滤($):",
-                    min_value=0.0,
-                    max_value=1000.0,
-                    value=float(st.session_state.crawl_config['value_filter']),
-                    help="只爬取价值大于此值的交易"
+                # 价值过滤配置
+                st.sidebar.markdown("**价值过滤 💰**")
+                
+                # 价值预设选项
+                value_presets = {
+                    "无限制": 0.0,
+                    "微交易 (>$1)": 1.0,
+                    "小额 (>$10)": 10.0,
+                    "中等 (>$100)": 100.0,
+                    "大额 (>$1K)": 1000.0,
+                    "巨额 (>$10K)": 10000.0,
+                    "自定义": -1  # 特殊标记
+                }
+                
+                value_preset = st.sidebar.selectbox(
+                    "选择价值预设:",
+                    options=list(value_presets.keys()),
+                    index=0,
+                    help="选择常用价值范围或自定义输入"
                 )
+                
+                if value_preset == "自定义":
+                    value_filter = st.sidebar.number_input(
+                        "自定义价值过滤($):",
+                        min_value=0.0,
+                        max_value=1000000.0,
+                        value=float(st.session_state.crawl_config['value_filter']),
+                        step=10.0,
+                        help="只爬取价值大于此值的交易"
+                    )
+                else:
+                    value_filter = value_presets[value_preset]
+                    st.sidebar.info(f"当前设置: {value_preset}")
             
             # 时间范围配置
             st.sidebar.subheader("⏰ 时间范围 (可选)")
-            use_time_filter = st.sidebar.checkbox("启用时间过滤", value=False)
+            
+            # 智能时间预设
+            time_presets = {
+                "无限制": None,
+                "近4小时": 4,
+                "近12小时": 12,
+                "近24小时": 24,
+                "近3天": 72,
+                "近7天": 168,
+                "近30天": 720,
+                "自定义": -1  # 特殊标记
+            }
+            
+            time_preset = st.sidebar.selectbox(
+                "选择时间范围:",
+                options=list(time_presets.keys()),
+                index=0,
+                help="选择常用时间范围或自定义设置"
+            )
             
             from_time = None
             to_time = None
             
-            if use_time_filter:
+            if time_preset == "自定义":
+                # 自定义时间输入
+                st.sidebar.markdown("**自定义时间设置**")
+                
                 # 简化的时间输入
-                st.sidebar.markdown("**开始时间**")
-                from_datetime_str = st.sidebar.text_input(
-                    "开始时间 (格式: YYYY-MM-DD HH:MM:SS)",
-                    value="2025-08-30 09:00:00",
-                    help="例如: 2025-08-30 09:00:00"
-                )
+                col1, col2 = st.sidebar.columns(2)
                 
-                st.sidebar.markdown("**结束时间**")
-                to_datetime_str = st.sidebar.text_input(
-                    "结束时间 (格式: YYYY-MM-DD HH:MM:SS)",
-                    value="2025-08-30 10:00:00",
-                    help="例如: 2025-08-30 10:00:00"
-                )
-                
-                # 解析时间字符串
-                try:
-                    from_datetime = datetime.strptime(from_datetime_str, "%Y-%m-%d %H:%M:%S")
-                    to_datetime = datetime.strptime(to_datetime_str, "%Y-%m-%d %H:%M:%S")
+                with col1:
+                    from_date = st.date_input(
+                        "开始日期",
+                        value=datetime.now().date() - timedelta(days=1),
+                        help="选择开始日期"
+                    )
                     
-                    from_time = int(from_datetime.timestamp())
-                    to_time = int(to_datetime.timestamp())
+                with col2:
+                    to_date = st.date_input(
+                        "结束日期", 
+                        value=datetime.now().date(),
+                        help="选择结束日期"
+                    )
+                
+                col3, col4 = st.sidebar.columns(2)
+                
+                with col3:
+                    from_time_input = st.time_input(
+                        "开始时间",
+                        value=datetime.now().time().replace(hour=9, minute=0, second=0, microsecond=0),
+                        help="选择开始时间"
+                    )
+                    
+                with col4:
+                    to_time_input = st.time_input(
+                        "结束时间",
+                        value=datetime.now().time().replace(hour=10, minute=0, second=0, microsecond=0),
+                        help="选择结束时间"
+                    )
+                
+                # 合并日期和时间
+                try:
+                    from_datetime = datetime.combine(from_date, from_time_input)
+                    to_datetime = datetime.combine(to_date, to_time_input)
                     
                     # 验证时间范围
-                    if to_time <= from_time:
+                    if to_datetime <= from_datetime:
                         st.sidebar.error("⚠️ 结束时间必须大于开始时间")
                         from_time = None
                         to_time = None
                     else:
+                        from_time = int(from_datetime.timestamp())
+                        to_time = int(to_datetime.timestamp())
+                        
                         # 显示选择的时间范围和时长
                         duration_hours = (to_time - from_time) / 3600
                         st.sidebar.success(f"✅ 时间范围: {duration_hours:.1f} 小时")
                         st.sidebar.info(f"📅 {from_datetime.strftime('%m-%d %H:%M')} 至 {to_datetime.strftime('%m-%d %H:%M')}")
                         
-                except ValueError:
-                    st.sidebar.error("❌ 时间格式错误，请使用 YYYY-MM-DD HH:MM:SS 格式")
+                except Exception as e:
+                    st.sidebar.error(f"❌ 时间设置错误: {str(e)}")
                     from_time = None
                     to_time = None
+                    
+            elif time_preset != "无限制":
+                # 使用预设时间范围
+                hours = time_presets[time_preset]
+                if hours:
+                    now = datetime.now()
+                    to_datetime = now
+                    from_datetime = now - timedelta(hours=hours)
+                    
+                    from_time = int(from_datetime.timestamp())
+                    to_time = int(to_datetime.timestamp())
+                    
+                    st.sidebar.success(f"✅ 时间范围: {time_preset}")
+                    st.sidebar.info(f"📅 {from_datetime.strftime('%m-%d %H:%M')} 至 {to_datetime.strftime('%m-%d %H:%M')}")
+            else:
+                st.sidebar.info("💡 未设置时间限制，将分析所有数据")
             
             crawl_config = {
                 'token_address': token_address,
