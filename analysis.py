@@ -61,6 +61,23 @@ class TokenFlowAnalyzer:
         if 'data' not in data:
             raise ValueError("数据文件格式错误，缺少 'data' 字段")
         
+        # 🆕 优先从文件中的metadata获取代币总供应量
+        self.token_metadata = None
+        if 'metadata' in data:
+            # 检查是否有代币元数据（总供应量等）
+            metadata = data['metadata']
+            if 'actual_total_supply' in metadata:
+                self.token_metadata = metadata
+                print(f"✅ 从文件中找到代币元数据，总供应量: {metadata['actual_total_supply']:,.2f}")
+            elif 'total_supply_raw' in metadata and 'decimals' in metadata:
+                # 如果有原始供应量和小数位，计算实际供应量
+                raw_supply = float(metadata['total_supply_raw'])
+                decimals = int(metadata['decimals'])
+                actual_supply = raw_supply / (10 ** decimals)
+                metadata['actual_total_supply'] = actual_supply
+                self.token_metadata = metadata
+                print(f"✅ 从文件计算出总供应量: {actual_supply:,.2f}")
+        
         # 加载地址标签映射
         if 'metadata' in data and 'accounts' in data['metadata']:
             for addr, info in data['metadata']['accounts'].items():
@@ -68,6 +85,18 @@ class TokenFlowAnalyzer:
                     self.address_labels[addr] = info['account_label']
                 elif 'account_domain' in info:
                     self.address_labels[addr] = info['account_domain']
+        
+        # 加载额外的地址标签文件
+        labels_file = Path("settings/address_labels.json")
+        if labels_file.exists():
+            try:
+                with open(labels_file, 'r', encoding='utf-8') as f:
+                    extra_labels = json.load(f)
+                    self.address_labels.update(extra_labels)
+                print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
+            except Exception as e:
+                print(f"⚠️ 加载额外地址标签失败: {e}")
+        else:
             print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
         
         self.df = pd.DataFrame(data['data'])
@@ -89,65 +118,38 @@ class TokenFlowAnalyzer:
         # 计算实际代币数量（处理小数位）
         self.df['actual_amount'] = self.df['amount'] / (10 ** self.df['token_decimals'])
         
-        # 获取代币地址（假设所有交易都是同一个代币）
-        if 'token_address' in self.df.columns:
-            token_address = self.df['token_address'].iloc[0]
-            print(f"🔍 检测到代币地址: {token_address}")
-            
-            # 尝试从SolscanAnalyzer获取真实的总供应量
-            try:
-                from solscanCrawler import SolscanAnalyzer
-                crawler = SolscanAnalyzer()
-                metadata = crawler.get_token_metadata(token_address)
-                
-                if metadata and 'actual_total_supply' in metadata:
-                    self.estimated_token_supply = metadata['actual_total_supply']
-                    print(f"✅ 获取真实代币供应量: {self.estimated_token_supply:,.2f}")
-                else:
-                    # 如果获取失败，使用改进的估算方法
-                    print("⚠️ 无法获取真实供应量，使用改进估算方法")
-                    
-                    total_volume = self.df['actual_amount'].sum()
-                    max_single_amount = self.df['actual_amount'].max()
-                    unique_addresses = len(set(self.df['from_address'].unique()) | set(self.df['to_address'].unique()))
-                    
-                    # 改进的估算逻辑：
-                    # 1. 基于观察到的最大持仓估算
-                    # 2. 考虑地址数量的影响
-                    # 3. 为meme币和pump.fun代币调整参数
-                    
-                    if 'pump' in token_address.lower():
-                        # pump.fun 代币通常供应量较大
-                        estimated_multiplier = 50
-                        print("🎯 检测到pump.fun代币，使用专用估算参数")
-                    else:
-                        estimated_multiplier = 20
-                    
-                    # 多种估算方法取最大值，确保不会低估
-                    estimates = [
-                        max_single_amount * estimated_multiplier,  # 基于最大单笔
-                        total_volume * 10,  # 基于总交易量
-                        max_single_amount * unique_addresses * 0.5  # 基于地址数量
-                    ]
-                    
-                    self.estimated_token_supply = max(estimates)
-                    print(f"📊 改进估算代币供应量: {self.estimated_token_supply:,.2f}")
-                    print(f"   🔢 估算依据: 最大单笔 {max_single_amount:,.2f} × {estimated_multiplier}")
-                    print(f"   👥 观察地址数: {unique_addresses}")
-                    print(f"   📈 总交易量: {total_volume:,.2f}")
-                    
-            except ImportError:
-                print("⚠️ 无法导入SolscanAnalyzer，使用估算方法")
-                total_volume = self.df['actual_amount'].sum()
-                max_single_amount = self.df['actual_amount'].max()
-                self.estimated_token_supply = max(total_volume * 5, max_single_amount * 200)
-                print(f"📊 估算代币供应量: {self.estimated_token_supply:,.2f}")
+        # 🆕 优先使用已保存的代币元数据
+        if hasattr(self, 'token_metadata') and self.token_metadata and 'actual_total_supply' in self.token_metadata:
+            self.estimated_token_supply = self.token_metadata['actual_total_supply']
+            print(f"✅ 使用已保存的代币供应量: {self.estimated_token_supply:,.2f}")
         else:
-            # 如果没有token_address字段，使用估算方法
-            total_volume = self.df['actual_amount'].sum()
-            max_single_amount = self.df['actual_amount'].max()
-            self.estimated_token_supply = max(total_volume * 5, max_single_amount * 200)
-            print(f"📊 估算代币供应量: {self.estimated_token_supply:,.2f}")
+            # 获取代币地址（假设所有交易都是同一个代币）
+            if 'token_address' in self.df.columns:
+                token_address = self.df['token_address'].iloc[0]
+                print(f"🔍 检测到代币地址: {token_address}")
+                print("⚠️ 文件中无总供应量信息，尝试重新获取...")
+                
+                # 尝试从SolscanAnalyzer获取真实的总供应量
+                try:
+                    from solscanCrawler import SolscanAnalyzer
+                    crawler = SolscanAnalyzer()
+                    metadata = crawler.get_token_metadata(token_address)
+                    
+                    if metadata and 'actual_total_supply' in metadata:
+                        self.estimated_token_supply = metadata['actual_total_supply']
+                        print(f"✅ 重新获取代币供应量: {self.estimated_token_supply:,.2f}")
+                    else:
+                        # 如果获取失败，使用改进的估算方法
+                        print("⚠️ 无法获取真实供应量，使用改进估算方法")
+                        self._estimate_token_supply(token_address)
+                        
+                except ImportError:
+                    print("⚠️ 无法导入SolscanAnalyzer，使用估算方法")
+                    self._estimate_token_supply()
+            else:
+                # 如果没有token_address字段，使用估算方法
+                print("⚠️ 无token_address字段，使用估算方法")
+                self._estimate_token_supply()
         
         print(f"🔍 观察到的总交易量: {self.df['actual_amount'].sum():,.2f}")
         print(f"💰 最大单笔交易: {self.df['actual_amount'].max():,.2f}")
@@ -159,6 +161,37 @@ class TokenFlowAnalyzer:
         print(f"🔢 原始数量范围: {self.df['amount'].min():,.0f} - {self.df['amount'].max():,.0f}")
         print(f"🪙 实际代币数量范围: {self.df['actual_amount'].min():,.6f} - {self.df['actual_amount'].max():,.6f}")
         print(f"✅ 预处理完成，有效记录: {len(self.df)} 条")
+    
+    def _estimate_token_supply(self, token_address=None):
+        """估算代币总供应量"""
+        total_volume = self.df['actual_amount'].sum()
+        max_single_amount = self.df['actual_amount'].max()
+        unique_addresses = len(set(self.df['from_address'].unique()) | set(self.df['to_address'].unique()))
+        
+        # 改进的估算逻辑：
+        # 1. 基于观察到的最大持仓估算
+        # 2. 考虑地址数量的影响
+        # 3. 为meme币和pump.fun代币调整参数
+        
+        if token_address and 'pump' in token_address.lower():
+            # pump.fun 代币通常供应量较大
+            estimated_multiplier = 50
+            print("🎯 检测到pump.fun代币，使用专用估算参数")
+        else:
+            estimated_multiplier = 20
+        
+        # 多种估算方法取最大值，确保不会低估
+        estimates = [
+            max_single_amount * estimated_multiplier,  # 基于最大单笔
+            total_volume * 10,  # 基于总交易量
+            max_single_amount * unique_addresses * 0.5  # 基于地址数量
+        ]
+        
+        self.estimated_token_supply = max(estimates)
+        print(f"📊 改进估算代币供应量: {self.estimated_token_supply:,.2f}")
+        print(f"   🔢 估算依据: 最大单笔 {max_single_amount:,.2f} × {estimated_multiplier}")
+        print(f"   👥 观察地址数: {unique_addresses}")
+        print(f"   📈 总交易量: {total_volume:,.2f}")
     
     def calculate_net_flows(self):
         """

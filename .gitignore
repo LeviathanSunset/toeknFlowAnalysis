@@ -121,7 +121,10 @@ dmypy.json
 # 项目特定的忽略文件
 
 # 爬取的数据文件（敏感数据）
-storage/*.json
+# 忽略storage目录下的所有文件
+storage/
+storage/*
+storage/**/*
 
 # 配置文件中的敏感信息（如果包含密钥）
 # settings/config.yaml

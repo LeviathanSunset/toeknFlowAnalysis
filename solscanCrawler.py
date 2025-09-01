@@ -419,7 +419,7 @@ class SolscanAnalyzer:
                             break
                     elif response.status_code == 403:
                         print("❌ 403错误，尝试更新cf_clearance...")
-                        if self.update_cf_clearance():
+                        if self._handle_cloudflare_challenge(response):
                             # 递归重试当前端点
                             return self.get_token_metadata(token_address)
                         break
@@ -544,6 +544,16 @@ class SolscanAnalyzer:
         print("🚀 开始批量爬取数据...")
         print(f"📄 最大页数: {max_pages}")
         print(f"⏱️  页面延迟: {delay_between_pages}秒")
+        
+        # 📈 首先获取代币元数据（包括总供应量）
+        print("\n📊 正在获取代币元数据...")
+        token_metadata = self.get_token_metadata(address)
+        if token_metadata:
+            print("✅ 代币元数据获取成功")
+            # 将元数据存储到结果中
+            all_metadata.update(token_metadata)
+        else:
+            print("⚠️ 代币元数据获取失败，将继续爬取交易数据")
         
         start_time = datetime.now()
         

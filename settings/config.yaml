@@ -1,63 +1,51 @@
-# Solscan API 爬虫配置文件
 api:
-  base_url: "https://api-v2.solscan.io"
+  base_url: https://api-v2.solscan.io
   timeout: 30
-
-# 代理配置
-proxy:
-  enabled: true
-  http: "http://127.0.0.1:10808"
-  https: "http://127.0.0.1:10808"
-
-# 请求头配置
-headers:
-  accept: "application/json, text/plain, */*"
-  accept_encoding: "gzip, deflate, br, zstd"
-  accept_language: "en-US,en;q=0.9,zh-HK;q=0.8,zh-CN;q=0.7,zh;q=0.6,es-MX;q=0.5,es;q=0.4,ru-RU;q=0.3,ru;q=0.2"
-  origin: "https://solscan.io"
-  referer: "https://solscan.io/"
-  sec_ch_ua: '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"'
-  sec_ch_ua_mobile: "?0"
-  sec_ch_ua_platform: '"Windows"'
-  sec_fetch_dest: "empty"
-  sec_fetch_mode: "cors"
-  sec_fetch_site: "same-site"
-  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
-
-# Cookies配置 (敏感信息，请根据需要更新)
 cookies:
-  _ga: "GA1.1.1209325326.1754545638"
-  auth_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImtyaXNobmFnYWlraXNldHN1QGdtYWlsLmNvbSIsImFjdGlvbiI6ImxvZ2dlZCIsImlhdCI6MTc1NjY0MjUyNiwiZXhwIjoxNzY3NDQyNTI2fQ.Ejga0g4G9FHzfJK-ivUyfnWN35Q6LK5yg2X7DiDzK0Y"
-  _ga_PS3V7B7KV0: "GS2.1.s1756710348$o32$g1$t1756710545$j60$l0$h0"
-  cf_clearance: "mg9j.gMBKWZzKca2ZyjElRja5eWQKaDjIj4lZElJvn4-1756710343-1.2.1.1-OGS..yxJSgpmyqAxTivqIoRrsEihW0e3FlkmrAYoiUaD6CT6vDC0IX2Ml8x.l1QDtLCtx3NL215YzETRqQ8KIexmf_dEMDbcgFHFYKQUgGEXhxIiuX_PP3A5seO5n.dj7CDTTXTwc6pOBQGzu.E4H3tVRPZg6o7YEzupHajBgDGngvWr5EA97j.Bn6isPSYrCECsGtQSSdq5hWCqnGkQjnQeYn26xCYPBE4ENegBbZY"
-
-
-# 重试配置
-retry:
-  max_retries: 3
-  backoff_factor: 1
-  status_codes: [429, 500, 502, 503, 504]
-
-# 翻页配置
-pagination:
-  max_pages: 100           # 最大翻页数量，防止无限循环
-  delay_between_pages: 0.5 # 页面间延迟（秒）
-  retry_failed_pages: 2    # 失败页面重试次数
-
-# 默认查询参数
+  _ga: GA1.1.692887463.1756722042
+  _ga_PS3V7B7KV0: GS2.1.s1756722041$o1$g1$t1756722059$j42$l0$h0
+  auth_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImtyaXNobmFnYWlraXNldHN1QGdtYWlsLmNvbSIsImFjdGlvbiI6ImxvZ2dlZCIsImlhdCI6MTc1NjY0MjUyNiwiZXhwIjoxNzY3NDQyNTI2fQ.Ejga0g4G9FHzfJK-ivUyfnWN35Q6LK5yg2X7DiDzK0Y
+  cf_clearance: yMx3.jUC23o45eP.q8PzXUiNU8_oaFZxBeVN_LplpSQ-1756722036-1.2.1.1-NkjFhrrMyAIiSDAtY1iaFiRguJvWBg.XcCU9eVva0MI5eY8Xkj5i.qd9g5gPC9baimyhsfLMX7q.eG4ooAxGVQ1B9A3RrwCnyVncTVtyn4WJlcPB3.jdktkl9ADjn5oTYvAQIVmGfzjWf_eQop6ZkPGogNAvp3g.Yt4GrG_mYD0xOhJHRdOF9wfzEpXmskzY2SGcOHvOjmFqwSV_AirGu1EONWCZhjEX552OdQ9L5TE
 default_params:
+  exclude_amount_zero: true
   page_size: 100
   remove_spam: false
-  exclude_amount_zero: true
-
-# 数据存储配置
+headers:
+  accept: application/json, text/plain, */*
+  accept_encoding: gzip, deflate, br, zstd
+  accept_language: en-US,en;q=0.9,zh-HK;q=0.8,zh-CN;q=0.7,zh;q=0.6,es-MX;q=0.5,es;q=0.4,ru-RU;q=0.3,ru;q=0.2
+  origin: https://solscan.io
+  referer: https://solscan.io/
+  sec_ch_ua: '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"'
+  sec_ch_ua_mobile: ?0
+  sec_ch_ua_platform: '"Windows"'
+  sec_fetch_dest: empty
+  sec_fetch_mode: cors
+  sec_fetch_site: same-site
+  user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+    like Gecko) Chrome/139.0.0.0 Safari/537.36
+pagination:
+  delay_between_pages: 0.5
+  max_pages: 100
+  retry_failed_pages: 2
+proxy:
+  enabled: true
+  http: http://127.0.0.1:10808
+  https: http://127.0.0.1:10808
+retry:
+  backoff_factor: 1
+  max_retries: 3
+  status_codes:
+  - 429
+  - 500
+  - 502
+  - 503
+  - 504
 storage:
-  directory: "storage"
-  filename_format: "solscan_data_{timestamp}.json"
-
-# 目标代币配置 (示例)
+  directory: storage
+  filename_format: solscan_data_{timestamp}.json
 target_tokens:
-  - address: "5zCETicUCJqJ5Z3wbfFPZqtSpHPYqnggs1wX7ZRpump"
-    name: "SPARK"
-    symbol: "SPARK"
-    description: "Illusion of Life"
+- address: 5zCETicUCJqJ5Z3wbfFPZqtSpHPYqnggs1wX7ZRpump
+  description: Illusion of Life
+  name: SPARK
+  symbol: SPARK
