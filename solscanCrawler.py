@@ -260,6 +260,188 @@ class SolscanAnalyzer:
         
         return True
     
+    def get_token_metadata(self, token_address):
+        """
+        获取代币metadata信息（包括总供应量）
+        
+        Args:
+            token_address: 代币地址
+            
+        Returns:
+            dict: 代币metadata信息
+        """
+        print(f"🔍 获取代币 {token_address} 的metadata...")
+        
+        # 尝试多个API端点
+        endpoints = [
+            f"{self.base_url}/v2/account?address={token_address}&view_as=token",  # 最佳端点 - 有完整供应量
+            f"{self.base_url}/v2/token/meta?address={token_address}",  # 备用端点
+            f"{self.base_url}/token/meta?address={token_address}",     # 备用端点2
+        ]
+        
+        for endpoint_idx, endpoint in enumerate(endpoints):
+            # 对第一个端点多尝试几次（因为它有最完整的数据）
+            max_retries = 3 if endpoint_idx == 0 else 1
+            
+            for retry in range(max_retries):
+                try:
+                    if retry > 0:
+                        print(f"🔄 重试第 {retry + 1} 次...")
+                        time.sleep(2)  # 重试前等待2秒
+                    
+                    print(f"📡 尝试端点: {endpoint}")
+                    
+                    # 确保使用正确的headers，包括必要的cookie
+                    headers = self.headers.copy()
+                    headers.update({
+                        'Accept': 'application/json, text/plain, */*',
+                        'Accept-Language': 'en-US,en;q=0.9,zh-HK;q=0.8,zh-CN;q=0.7,zh;q=0.6',
+                        'Origin': 'https://solscan.io',
+                        'Referer': 'https://solscan.io/',
+                        'Sec-Fetch-Dest': 'empty',
+                        'Sec-Fetch-Mode': 'cors',
+                        'Sec-Fetch-Site': 'same-site'
+                    })
+                    
+                    response = self.session.get(
+                        endpoint,
+                        headers=headers,
+                        timeout=10,  # 增加超时时间
+                        verify=False
+                    )
+                    
+                    print(f"📊 响应状态: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        print(f"🔍 响应数据结构: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                        
+                        # 处理不同的响应格式
+                        if isinstance(data, dict):
+                            # 格式1: {success: true, data: {...}}
+                            if data.get('success') and 'data' in data:
+                                metadata = data['data']
+                            # 格式2: 直接是数据对象
+                            else:
+                                metadata = data
+                                
+                            print(f"📋 Metadata字段: {list(metadata.keys()) if isinstance(metadata, dict) else 'N/A'}")
+                            
+                            # 查找供应量信息的多种字段名
+                            supply_fields = [
+                                'supply', 'total_supply', 'totalSupply', 'max_supply',
+                                'current_supply', 'currentSupply', 'circulating_supply', 
+                                'circulatingSupply', 'token_supply', 'tokenSupply'
+                            ]
+                            
+                            total_supply = None
+                            
+                            # 首先在顶层查找
+                            for field in supply_fields:
+                                if field in metadata:
+                                    supply_data = metadata[field]
+                                    if isinstance(supply_data, dict):
+                                        # 尝试从嵌套对象中获取
+                                        for sub_field in ['total', 'current', 'value', 'amount', 'total_supply', 'current_supply']:
+                                            if sub_field in supply_data:
+                                                total_supply = supply_data[sub_field]
+                                                if total_supply:
+                                                    print(f"✅ 在 {field}.{sub_field} 找到供应量: {total_supply}")
+                                                    break
+                                    else:
+                                        total_supply = supply_data
+                                        if total_supply:
+                                            print(f"✅ 在 {field} 找到供应量: {total_supply}")
+                                            break
+                            
+                            # 如果还没找到，在所有嵌套对象中递归查找
+                            if not total_supply:
+                                def find_supply_recursive(obj, path=""):
+                                    if isinstance(obj, dict):
+                                        for key, value in obj.items():
+                                            current_path = f"{path}.{key}" if path else key
+                                            if any(supply_term in key.lower() for supply_term in ['supply', 'total', 'current', 'circulation']):
+                                                if isinstance(value, (int, float, str)) and str(value).replace('.','').isdigit():
+                                                    return value, current_path
+                                            result = find_supply_recursive(value, current_path)
+                                            if result[0]:
+                                                return result
+                                    return None, ""
+                                
+                                supply_result, supply_path = find_supply_recursive(metadata)
+                                if supply_result:
+                                    total_supply = supply_result
+                                    print(f"✅ 递归搜索在 {supply_path} 找到供应量: {total_supply}")
+                            
+                            # 获取小数位 - 从tokenInfo中获取
+                            decimals = 0
+                            if 'tokenInfo' in metadata and 'decimals' in metadata['tokenInfo']:
+                                decimals = metadata['tokenInfo']['decimals']
+                            else:
+                                decimals = (metadata.get('decimals') or 
+                                          metadata.get('decimal') or 
+                                          metadata.get('token_decimals') or 0)
+                            
+                            if total_supply:
+                                try:
+                                    total_supply = float(total_supply)
+                                    decimals = int(decimals)
+                                    
+                                    # 计算实际供应量（考虑小数位）
+                                    actual_supply = total_supply / (10 ** decimals)
+                                    
+                                    print(f"✅ 代币metadata获取成功 (端点: {endpoint}):")
+                                    print(f"   📊 总供应量: {total_supply} (原始)")
+                                    print(f"   🪙 实际供应量: {actual_supply:,.2f}")
+                                    print(f"   🔢 小数位: {decimals}")
+                                    
+                                    metadata['actual_total_supply'] = actual_supply
+                                    metadata['total_supply_raw'] = total_supply
+                                    metadata['decimals'] = decimals
+                                    return metadata
+                                    
+                                except (ValueError, TypeError) as e:
+                                    print(f"⚠️ 供应量数据解析失败: {e}")
+                                    continue
+                            else:
+                                print(f"⚠️ 在metadata中未找到供应量字段")
+                                print(f"   🔍 完整响应: {json.dumps(metadata, indent=2, default=str)[:500]}...")
+                                
+                        # 如果这个端点没有供应量但有其他信息，并且是第一次尝试，则继续重试
+                        if endpoint_idx == 0 and retry < max_retries - 1:
+                            continue
+                        
+                    elif response.status_code == 304:
+                        print("📝 304 Not Modified - 内容未改变，可能需要处理缓存")
+                        if retry < max_retries - 1:
+                            continue
+                        else:
+                            break
+                    elif response.status_code == 403:
+                        print("❌ 403错误，尝试更新cf_clearance...")
+                        if self.update_cf_clearance():
+                            # 递归重试当前端点
+                            return self.get_token_metadata(token_address)
+                        break
+                    else:
+                        print(f"❌ HTTP错误: {response.status_code}")
+                        if hasattr(response, 'text'):
+                            print(f"   响应内容: {response.text[:200]}...")
+                        if retry < max_retries - 1:
+                            continue
+                        else:
+                            break
+                        
+                except Exception as e:
+                    print(f"❌ 端点 {endpoint} 请求失败 (重试 {retry + 1}/{max_retries}): {str(e)}")
+                    if retry < max_retries - 1:
+                        continue
+                    else:
+                            break
+        
+        print("❌ 所有端点都无法获取代币metadata")
+        return None
+    
     def get_token_transfers(self, address, page=1, page_size=None, from_time=None, to_time=None, value_filter=None):
         """
         获取代币转账记录
@@ -511,8 +693,22 @@ class SolscanAnalyzer:
             time_range = None
         
         # 地址分析
-        unique_from = df['from'].nunique() if 'from' in df.columns else 0
-        unique_to = df['to'].nunique() if 'to' in df.columns else 0
+        unique_from = df['from_address'].nunique() if 'from_address' in df.columns else 0
+        unique_to = df['to_address'].nunique() if 'to_address' in df.columns else 0
+        
+        # 高频地址分析
+        top_senders = df['from_address'].value_counts().head(10).to_dict() if 'from_address' in df.columns else {}
+        top_receivers = df['to_address'].value_counts().head(10).to_dict() if 'to_address' in df.columns else {}
+        
+        # 大额交易分析（价值超过平均值2倍的交易）
+        if 'value' in df.columns and df['value'].mean() > 0:
+            high_value_threshold = df['value'].mean() * 2
+            high_value_txs = df[df['value'] > high_value_threshold]
+            high_value_count = len(high_value_txs)
+            high_value_total = high_value_txs['value'].sum() if not high_value_txs.empty else 0
+        else:
+            high_value_count = 0
+            high_value_total = 0
         
         # 构建分析结果
         analysis = {
@@ -537,6 +733,15 @@ class SolscanAnalyzer:
                 "min_usd": min_value
             },
             "time_analysis": time_range,
+            "address_analysis": {
+                "top_senders": top_senders,
+                "top_receivers": top_receivers
+            },
+            "high_value_analysis": {
+                "count": high_value_count,
+                "total_value": high_value_total,
+                "percentage": (high_value_count / total_transactions * 100) if total_transactions > 0 else 0
+            },
             "raw_data_info": {
                 "total_pages": data.get('total_pages', 0),
                 "crawl_duration": data.get('crawl_info', {}).get('duration_seconds', 0),
@@ -555,11 +760,25 @@ class SolscanAnalyzer:
         print(f"💵 总价值: ${total_value:,.2f}")
         print(f"📊 平均交易价值: ${avg_value:.2f}")
         print(f"📊 中位数交易价值: ${median_value:.2f}")
+        print(f"🔥 大额交易数量: {high_value_count} ({high_value_count/total_transactions*100:.1f}%)" if total_transactions > 0 else "🔥 大额交易数量: 0")
+        print(f"💎 大额交易总价值: ${high_value_total:,.2f}")
         
         if time_range:
             print(f"⏰ 时间跨度: {time_range['span_hours']:.2f} 小时")
             print(f"🕐 开始时间: {time_range['start']}")
             print(f"🕐 结束时间: {time_range['end']}")
+        
+        if top_senders:
+            print(f"\n🏆 最活跃发送地址 (前3名):")
+            for i, (addr, count) in enumerate(list(top_senders.items())[:3], 1):
+                print(f"   {i}. {addr[:16]}... ({count} 笔交易)")
+        
+        if top_receivers:
+            print(f"\n🎯 最活跃接收地址 (前3名):")
+            for i, (addr, count) in enumerate(list(top_receivers.items())[:3], 1):
+                print(f"   {i}. {addr[:16]}... ({count} 笔交易)")
+        
+        print("="*60)
         
         return analysis
     
