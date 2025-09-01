@@ -229,6 +229,7 @@ class SolscanCrawler:
             default_page_size = self.config['default_params']['page_size']
             if current_page_count < default_page_size:
                 print(f"📄 第 {page} 页数据量 ({current_page_count}) 小于页大小 ({default_page_size})，可能是最后一页")
+                page += 1  # 移动到这里，确保页数正确统计
                 break
             
             page += 1
@@ -238,9 +239,10 @@ class SolscanCrawler:
                 time.sleep(delay_between_pages)
         
         # 构建最终结果
+        actual_pages = page - 1  # 实际爬取的页数
         result = {
             "success": True,
-            "total_pages": page - 1,
+            "total_pages": actual_pages,
             "total_records": total_records,
             "failed_pages": failed_pages,
             "data": all_data,
@@ -252,12 +254,12 @@ class SolscanCrawler:
                 "to_time": to_time,
                 "value_filter": value_filter,
                 "max_pages_limit": max_pages,
-                "actual_pages": page - 1
+                "actual_pages": actual_pages
             }
         }
         
         print(f"\n🎉 爬取完成！")
-        print(f"📊 总计爬取 {page-1} 页，{total_records} 条记录")
+        print(f"📊 总计爬取 {actual_pages} 页，{total_records} 条记录")
         if failed_pages:
             print(f"⚠️ 失败页面: {failed_pages}")
         
