@@ -28,6 +28,7 @@ class TokenFlowAnalyzer:
         self.data_file = data_file
         self.df = None
         self.analysis_results = {}
+        self.address_labels = {}  # 存储地址标签映射
         
     def load_data(self, file_path=None):
         """
@@ -59,6 +60,15 @@ class TokenFlowAnalyzer:
         
         if 'data' not in data:
             raise ValueError("数据文件格式错误，缺少 'data' 字段")
+        
+        # 加载地址标签映射
+        if 'metadata' in data and 'accounts' in data['metadata']:
+            for addr, info in data['metadata']['accounts'].items():
+                if 'account_label' in info:
+                    self.address_labels[addr] = info['account_label']
+                elif 'account_domain' in info:
+                    self.address_labels[addr] = info['account_domain']
+            print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
         
         self.df = pd.DataFrame(data['data'])
         print(f"✅ 成功加载 {len(self.df)} 条交易记录")
@@ -318,6 +328,30 @@ class TokenFlowAnalyzer:
             else:
                 return "无净流动"
     
+    def format_address_display(self, address, max_length=20):
+        """
+        格式化地址显示，优先显示标签名
+        
+        Args:
+            address: 地址
+            max_length: 最大显示长度
+            
+        Returns:
+            str: 格式化后的地址显示
+        """
+        if address in self.address_labels:
+            label = self.address_labels[address]
+            if len(label) <= max_length:
+                return label
+            else:
+                return label[:max_length-3] + "..."
+        else:
+            # 显示地址的前16个字符
+            if len(address) > 16:
+                return address[:16] + "..."
+            else:
+                return address
+    
     def get_top_net_inflows(self, top_n=20):
         """
         获取净流入最大的地址
@@ -334,14 +368,14 @@ class TokenFlowAnalyzer:
         top_inflows = self.net_flows_df.nlargest(top_n, 'net_tokens')
         
         print("🏆 净流入最大的地址 (Top 20) - 按代币数量:")
-        print("=" * 140)
-        print(f"{'排名':<4} {'地址':<20} {'净流入(代币)':<15} {'流入(代币)':<15} {'流出(代币)':<15} {'交易数':<8} {'类型':<12}")
-        print("=" * 140)
+        print("=" * 160)
+        print(f"{'排名':<4} {'地址/标签':<30} {'净流入(代币)':<15} {'流入(代币)':<15} {'流出(代币)':<15} {'交易数':<8} {'类型':<12}")
+        print("=" * 160)
         
         for idx, row in top_inflows.iterrows():
             rank = top_inflows.index.get_loc(idx) + 1
-            address = row['address'][:16] + "..." if len(row['address']) > 16 else row['address']
-            print(f"{rank:<4} {address:<20} {row['net_tokens']:<15,.6f} {row['inflow_tokens']:<15,.6f} "
+            address_display = self.format_address_display(row['address'], max_length=28)
+            print(f"{rank:<4} {address_display:<30} {row['net_tokens']:<15,.6f} {row['inflow_tokens']:<15,.6f} "
                   f"{row['outflow_tokens']:<15,.6f} {row['total_transactions']:<8} {row['address_type']:<12}")
         
         return top_inflows
@@ -362,15 +396,15 @@ class TokenFlowAnalyzer:
         top_outflows = self.net_flows_df.nsmallest(top_n, 'net_tokens')
         
         print("\n📉 净流出最大的地址 (Top 20) - 按代币数量:")
-        print("=" * 140)
-        print(f"{'排名':<4} {'地址':<20} {'净流出(代币)':<15} {'流入(代币)':<15} {'流出(代币)':<15} {'交易数':<8} {'类型':<12}")
-        print("=" * 140)
+        print("=" * 160)
+        print(f"{'排名':<4} {'地址/标签':<30} {'净流出(代币)':<15} {'流入(代币)':<15} {'流出(代币)':<15} {'交易数':<8} {'类型':<12}")
+        print("=" * 160)
         
         for idx, row in top_outflows.iterrows():
             rank = top_outflows.index.get_loc(idx) + 1
-            address = row['address'][:16] + "..." if len(row['address']) > 16 else row['address']
+            address_display = self.format_address_display(row['address'], max_length=28)
             net_outflow = abs(row['net_tokens'])
-            print(f"{rank:<4} {address:<20} {net_outflow:<15,.6f} {row['inflow_tokens']:<15,.6f} "
+            print(f"{rank:<4} {address_display:<30} {net_outflow:<15,.6f} {row['inflow_tokens']:<15,.6f} "
                   f"{row['outflow_tokens']:<15,.6f} {row['total_transactions']:<8} {row['address_type']:<12}")
         
         return top_outflows

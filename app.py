@@ -180,9 +180,19 @@ class StreamlitTokenFlowApp:
             return None
     
     def format_address(self, address, length=16):
-        """格式化地址显示"""
+        """格式化地址显示，优先显示标签名"""
         if pd.isna(address) or not address:
             return "N/A"
+        
+        # 检查是否有地址标签
+        if hasattr(self.analyzer, 'address_labels') and address in self.analyzer.address_labels:
+            label = self.analyzer.address_labels[address]
+            if len(label) <= length + 5:  # 地址标签可以稍微长一点
+                return label
+            else:
+                return label[:length] + "..."
+        
+        # 没有标签时显示缩短的地址
         if len(address) <= length:
             return address
         return f"{address[:length//2]}...{address[-length//2:]}"
