@@ -124,7 +124,7 @@ class SolscanAnalyzer:
             '_ga_PS3V7B7KV0': cookies_config['_ga_PS3V7B7KV0']
         }
     
-    def _update_cf_clearance_with_selenium(self):
+    def _update_cf_clearance_with_selenium(self, token_address=None):
         """使用 Selenium 自动获取新的 cf_clearance"""
         try:
             import undetected_chromedriver as uc
@@ -148,9 +148,15 @@ class SolscanAnalyzer:
             driver = uc.Chrome(options=options)
             
             try:
-                # 访问 solscan.io
-                print("🌐 正在访问 solscan.io...")
-                driver.get("https://solscan.io/")
+                # 根据是否有代币地址，选择访问的URL
+                if token_address:
+                    target_url = f"https://solscan.io/token/{token_address}"
+                    print(f"🌐 正在访问代币页面: {target_url}")
+                else:
+                    target_url = "https://solscan.io/"
+                    print("🌐 正在访问 solscan.io...")
+                
+                driver.get(target_url)
                 
                 # 等待页面加载完成
                 print("⏳ 等待 Cloudflare 验证通过...")
@@ -203,7 +209,7 @@ class SolscanAnalyzer:
             print(f"❌ Selenium 更新失败: {str(e)}")
             return False
     
-    def _update_cf_clearance_with_requests(self):
+    def _update_cf_clearance_with_requests(self, token_address=None):
         """使用 HTTP 请求尝试获取新的 cf_clearance"""
         try:
             print("🔄 尝试 HTTP 方式获取 cf_clearance...")
@@ -220,7 +226,15 @@ class SolscanAnalyzer:
             if self.proxies:
                 temp_session.proxies.update(self.proxies)
             
-            response = temp_session.get("https://solscan.io/", timeout=30, verify=False)
+            # 根据是否有代币地址，选择访问的URL
+            if token_address:
+                target_url = f"https://solscan.io/token/{token_address}"
+                print(f"🌐 HTTP方式访问代币页面: {target_url}")
+            else:
+                target_url = "https://solscan.io/"
+                print("🌐 HTTP方式访问 solscan.io...")
+            
+            response = temp_session.get(target_url, timeout=30, verify=False)
             
             if 'cf_clearance' in temp_session.cookies:
                 new_cf_clearance = temp_session.cookies['cf_clearance']
@@ -242,23 +256,49 @@ class SolscanAnalyzer:
             print(f"❌ HTTP 更新失败: {str(e)}")
             return False
     
-    def _handle_cloudflare_challenge(self, response):
+    def _handle_cloudflare_challenge(self, response, token_address=None):
         """处理 Cloudflare 挑战"""
         if response.status_code == 403 or "cloudflare" in response.text.lower():
             print("🛡️ 检测到 Cloudflare 防护，开始自动更新...")
             
-            # 尝试 Selenium 方式
-            if self._update_cf_clearance_with_selenium():
+            # 尝试 Selenium 方式，传递代币地址
+            if self._update_cf_clearance_with_selenium(token_address):
                 return True
             
-            # 尝试 HTTP 方式
-            if self._update_cf_clearance_with_requests():
+            # 尝试 HTTP 方式，传递代币地址
+            if self._update_cf_clearance_with_requests(token_address):
                 return True
             
             print("❌ 所有自动更新方式都失败，请检查网络或手动更新")
             return False
         
         return True
+    
+    def update_cookies_for_token(self, token_address):
+        """
+        为特定代币地址更新cookies
+        直接访问 https://solscan.io/token/[代币地址] 来获取最新的cf_clearance
+        
+        Args:
+            token_address: 代币地址
+            
+        Returns:
+            bool: 更新成功返回True，失败返回False
+        """
+        print(f"🔄 为代币 {token_address} 更新cookies...")
+        
+        # 尝试 Selenium 方式
+        if self._update_cf_clearance_with_selenium(token_address):
+            print(f"✅ 成功通过代币页面更新cookies: {token_address}")
+            return True
+        
+        # 尝试 HTTP 方式
+        if self._update_cf_clearance_with_requests(token_address):
+            print(f"✅ 成功通过代币页面更新cookies: {token_address}")
+            return True
+        
+        print(f"❌ 无法为代币 {token_address} 更新cookies")
+        return False
     
     def get_token_metadata(self, token_address):
         """
@@ -419,7 +459,7 @@ class SolscanAnalyzer:
                             break
                     elif response.status_code == 403:
                         print("❌ 403错误，尝试更新cf_clearance...")
-                        if self._handle_cloudflare_challenge(response):
+                        if self._handle_cloudflare_challenge(response, token_address):
                             # 递归重试当前端点
                             return self.get_token_metadata(token_address)
                         break
@@ -483,7 +523,7 @@ class SolscanAnalyzer:
                 # 检查 Cloudflare 挑战
                 if response.status_code == 403 or (response.status_code != 200 and "cloudflare" in response.text.lower()):
                     if attempt < max_retries:
-                        if self._handle_cloudflare_challenge(response):
+                        if self._handle_cloudflare_challenge(response, address):
                             print("🔄 cf_clearance 已更新，重试请求...")
                             continue
                         else:

@@ -100,300 +100,69 @@ class StreamlitTokenFlowApp:
             st.session_state.analyzer = None
         if 'data_loaded' not in st.session_state:
             st.session_state.data_loaded = False
-        if 'net_flows_df' not in st.session_state:
-            st.session_state.net_flows_df = None
-        if 'analysis_complete' not in st.session_state:
-            st.session_state.analysis_complete = False
         if 'crawl_in_progress' not in st.session_state:
             st.session_state.crawl_in_progress = False
         if 'crawl_config' not in st.session_state:
             st.session_state.crawl_config = {
                 'token_address': '5zCETicUCJqJ5Z3wbfFPZqtSpHPYqnggs1wX7ZRpump',
                 'max_pages': 50,
-                'value_filter': 30,
-                'from_time': None,
-                'to_time': None
+                'value_filter': 0.0
             }
     
     def load_available_data_files(self):
-        """获取可用的数据文件列表"""
+        """加载可用的数据文件"""
         storage_dir = Path("storage")
         if not storage_dir.exists():
             return []
         
         # 查找JSON数据文件
-        json_files = list(storage_dir.glob("solscan_data_*.json"))
-        json_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        json_files = list(storage_dir.glob("*.json"))
+        json_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)  # 按修改时间排序
         
         return [str(f) for f in json_files]
     
-    def crawl_new_data(self, config):
-        """爬取新的代币数据"""
-        try:
-            # 初始化爬虫
-            crawler = SolscanAnalyzer()
-            
-            # 设置进度显示
-            progress_container = st.empty()
-            status_container = st.empty()
-            
-            with progress_container.container():
-                progress_bar = st.progress(0)
-                
-            status_container.info("🚀 正在初始化爬虫...")
-            progress_bar.progress(10)
-            
-            # 开始爬取
-            status_container.info(f"📡 正在爬取代币数据: {config['token_address'][:16]}...")
-            progress_bar.progress(30)
-            
-            # 调用爬取方法
-            result = crawler.crawl_all_data(
-                address=config['token_address'],
-                from_time=config.get('from_time'),
-                to_time=config.get('to_time'),
-                value_filter=config.get('value_filter'),
-                max_pages=config.get('max_pages', 50)
-            )
-            
-            progress_bar.progress(70)
-            status_container.info("💾 正在保存数据...")
-            
-            if result and result.get('success'):
-                # 保存数据
-                saved_file = crawler.save_data(result, include_analysis=False)
-                
-                progress_bar.progress(100)
-                status_container.success(f"✅ 爬取完成！获得 {result.get('total_records', 0)} 条记录")
-                
-                time.sleep(1)
-                progress_container.empty()
-                status_container.empty()
-                
-                return saved_file
-            else:
-                status_container.error("❌ 爬取失败")
-                return None
-                
-        except Exception as e:
-            st.error(f"爬取过程中出错: {str(e)}")
-            return None
-    
-    def format_address(self, address, length=16, analyzer=None):
-        """格式化地址显示，优先显示标签名"""
-        if pd.isna(address) or not address:
+    def format_address(self, address, max_length=20, analyzer=None):
+        """格式化地址显示"""
+        if not address:
             return "N/A"
         
-        # 获取分析器实例
-        current_analyzer = analyzer or getattr(self, 'analyzer', None) or st.session_state.get('analyzer', None)
+        # 尝试获取地址标签
+        if analyzer and hasattr(analyzer, 'address_labels') and address in analyzer.address_labels:
+            label = analyzer.address_labels[address]
+            return f"🏷️ {label[:max_length]}..." if len(label) > max_length else f"🏷️ {label}"
         
-        # 检查是否有地址标签
-        if current_analyzer and hasattr(current_analyzer, 'address_labels') and address in current_analyzer.address_labels:
-            label = current_analyzer.address_labels[address]
-            if len(label) <= length + 5:  # 地址标签可以稍微长一点
-                return label
-            else:
-                return label[:length] + "..."
-        
-        # 没有标签时显示前4位和后4位
-        if len(address) <= 8:
+        # 显示地址的前后部分
+        if len(address) > max_length:
+            return f"{address[:8]}...{address[-6:]}"
+        else:
             return address
-        return f"{address[:4]}...{address[-4:]}"
     
     def format_currency(self, value):
         """格式化货币显示"""
         if pd.isna(value):
             return "$0.00"
-        return f"${value:,.2f}"
+        
+        if abs(value) >= 1e6:
+            return f"${value/1e6:.2f}M"
+        elif abs(value) >= 1e3:
+            return f"${value/1e3:.2f}K"
+        else:
+            return f"${value:.2f}"
     
     def format_tokens(self, value):
         """格式化代币数量显示"""
         if pd.isna(value):
             return "0"
         
-        # 根据数量大小选择显示格式
-        if abs(value) >= 1_000_000:
-            return f"{value/1_000_000:,.2f}M"
-        elif abs(value) >= 1_000:
-            return f"{value/1_000:,.2f}K"
+        if abs(value) >= 1e6:
+            return f"{value/1e6:.2f}M"
+        elif abs(value) >= 1e3:
+            return f"{value/1e3:.2f}K"
         elif abs(value) >= 1:
             return f"{value:,.2f}"
         else:
             return f"{value:.6f}"
     
-    def render_address_copy_buttons(self, df, section_id="default"):
-        """渲染按地址类型复制按钮"""
-        # 根据section_id显示不同的标题和说明
-        if section_id == "chart_section":
-            st.markdown("#### 🥧 饼图地址复制")
-            st.info("📊 基于饼图显示的所有地址类型，点击按钮复制对应类型的地址")
-        elif section_id == "table_section":
-            st.markdown("#### 📊 表格地址复制")
-            st.info("📋 基于当前筛选条件的数据表，支持按类型和条件复制地址")
-        else:
-            st.markdown("#### 📋 一键复制地址")
-        
-        # 统计各类型地址数量
-        type_counts = df['address_type'].value_counts()
-        
-        if len(type_counts) == 0:
-            st.info("暂无地址数据")
-            return
-        
-        # 创建列布局，每行最多4个按钮
-        cols_per_row = 4
-        rows = (len(type_counts) + cols_per_row - 1) // cols_per_row
-        
-        for row in range(rows):
-            cols = st.columns(cols_per_row)
-            for col_idx in range(cols_per_row):
-                item_idx = row * cols_per_row + col_idx
-                if item_idx < len(type_counts):
-                    address_type = type_counts.index[item_idx]
-                    count = type_counts.iloc[item_idx]
-                    
-                    with cols[col_idx]:
-                        # 获取该类型的所有地址
-                        addresses = df[df['address_type'] == address_type]['address'].tolist()
-                        addresses_text = '\n'.join(addresses)
-                        
-                        # 创建复制按钮，使用更唯一的key
-                        button_label = f"{address_type}\n({count}个)"
-                        unique_key = f"copy_{section_id}_{address_type}_{item_idx}"
-                        if st.button(
-                            button_label,
-                            key=unique_key,
-                            help=f"点击复制所有{address_type}类型的地址",
-                            type="secondary"
-                        ):
-                            # 使用st.code显示可复制的文本
-                            st.code(addresses_text, language=None)
-                            st.success(f"✅ 已显示 {count} 个{address_type}地址，可以选中复制")
-        
-        # 添加全部地址复制按钮
-        st.markdown("---")
-        
-        if section_id == "chart_section":
-            # 饼图区域的特殊按钮
-            col1, col2, col3 = st.columns([1, 1, 1])
-            
-            with col1:
-                if st.button("📋 复制全部地址", key=f"copy_all_{section_id}", type="primary"):
-                    all_addresses = df['address'].unique().tolist()
-                    addresses_text = '\n'.join(all_addresses)
-                    st.code(addresses_text, language=None)
-                    st.success(f"✅ 已显示全部 {len(all_addresses)} 个地址")
-            
-            with col2:
-                if st.button("🔝 复制排名前10", key=f"copy_top10_{section_id}"):
-                    # 获取净流动最大的前10个地址
-                    top_addresses = df.nlargest(10, 'net_tokens')['address'].tolist()
-                    addresses_text = '\n'.join(top_addresses)
-                    st.code(addresses_text, language=None)
-                    st.success(f"✅ 已显示净流动前10的地址")
-            
-            with col3:
-                if st.button("🏷️ 复制有标签地址", key=f"copy_labeled_{section_id}"):
-                    # 获取有标签的地址
-                    labeled_addresses = []
-                    for _, row in df.iterrows():
-                        addr = row['address']
-                        if hasattr(self, 'analyzer') and self.analyzer and hasattr(self.analyzer, 'address_labels'):
-                            if addr in self.analyzer.address_labels:
-                                labeled_addresses.append(f"{addr} # {self.analyzer.address_labels[addr]}")
-                    
-                    if labeled_addresses:
-                        addresses_text = '\n'.join(labeled_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(labeled_addresses)} 个有标签地址")
-                    else:
-                        st.warning("没有找到有标签的地址")
-        
-        elif section_id == "table_section":
-            # 数据表区域的特殊按钮
-            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-            
-            with col1:
-                if st.button("📋 复制当前页地址", key=f"copy_current_{section_id}", type="primary"):
-                    all_addresses = df['address'].unique().tolist()
-                    addresses_text = '\n'.join(all_addresses)
-                    st.code(addresses_text, language=None)
-                    st.success(f"✅ 已显示当前筛选的 {len(all_addresses)} 个地址")
-            
-            with col2:
-                if st.button("💰 复制大额地址", key=f"copy_big_{section_id}"):
-                    # 获取大额交易地址（鲸鱼、大户等）
-                    big_types = ["鲸鱼买入", "鲸鱼卖出", "大户买入", "大户卖出", "大买家", "大卖家", "大型做市商"]
-                    big_addresses = df[df['address_type'].isin(big_types)]['address'].unique().tolist()
-                    
-                    if big_addresses:
-                        addresses_text = '\n'.join(big_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(big_addresses)} 个大额地址")
-                    else:
-                        st.warning("没有找到大额地址")
-            
-            with col3:
-                if st.button("📈 复制净流入地址", key=f"copy_inflow_{section_id}"):
-                    # 获取净流入为正的地址
-                    inflow_addresses = df[df['net_tokens'] > 0]['address'].tolist()
-                    if inflow_addresses:
-                        addresses_text = '\n'.join(inflow_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(inflow_addresses)} 个净流入地址")
-                    else:
-                        st.warning("没有找到净流入地址")
-            
-            with col4:
-                if st.button("📉 复制净流出地址", key=f"copy_outflow_{section_id}"):
-                    # 获取净流出为负的地址
-                    outflow_addresses = df[df['net_tokens'] < 0]['address'].tolist()
-                    if outflow_addresses:
-                        addresses_text = '\n'.join(outflow_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(outflow_addresses)} 个净流出地址")
-                    else:
-                        st.warning("没有找到净流出地址")
-        
-        else:
-            # 默认按钮
-            col1, col2, col3 = st.columns([1, 1, 1])
-            
-            with col1:
-                if st.button("� 复制全部地址", key=f"copy_all_{section_id}", type="primary"):
-                    all_addresses = df['address'].unique().tolist()
-                    addresses_text = '\n'.join(all_addresses)
-                    st.code(addresses_text, language=None)
-                    st.success(f"✅ 已显示全部 {len(all_addresses)} 个地址")
-            
-            with col2:
-                if st.button("🏷️ 复制有标签地址", key=f"copy_labeled_{section_id}"):
-                    labeled_addresses = []
-                    for _, row in df.iterrows():
-                        addr = row['address']
-                        if hasattr(self, 'analyzer') and self.analyzer and hasattr(self.analyzer, 'address_labels'):
-                            if addr in self.analyzer.address_labels:
-                                labeled_addresses.append(f"{addr} # {self.analyzer.address_labels[addr]}")
-                    
-                    if labeled_addresses:
-                        addresses_text = '\n'.join(labeled_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(labeled_addresses)} 个有标签地址")
-                    else:
-                        st.warning("没有找到有标签的地址")
-            
-            with col3:
-                if st.button("💰 复制大额地址", key=f"copy_big_{section_id}"):
-                    big_types = ["鲸鱼买入", "鲸鱼卖出", "大户买入", "大户卖出", "大买家", "大卖家", "大型做市商"]
-                    big_addresses = df[df['address_type'].isin(big_types)]['address'].unique().tolist()
-                    
-                    if big_addresses:
-                        addresses_text = '\n'.join(big_addresses)
-                        st.code(addresses_text, language=None)
-                        st.success(f"✅ 已显示 {len(big_addresses)} 个大额地址")
-                    else:
-                        st.warning("没有找到大额地址")
-
     def get_address_type_color(self, address_type):
         """根据地址类型返回颜色"""
         color_map = {
@@ -558,6 +327,29 @@ class StreamlitTokenFlowApp:
             # 更新session state
             st.session_state.crawl_config = crawl_config
         
+        # Cookies管理
+        st.sidebar.subheader("🔧 Cookies管理")
+        
+        if operation_mode == "🔄 爬取新数据" and token_address:
+            if st.sidebar.button(
+                "🍪 更新Cookies",
+                help=f"为代币 {token_address} 更新cookies，直接访问其代币页面"
+            ):
+                try:
+                    with st.spinner("正在更新cookies..."):
+                        # 初始化爬虫
+                        crawler = SolscanAnalyzer()
+                        success = crawler.update_cookies_for_token(token_address)
+                        
+                        if success:
+                            st.sidebar.success("✅ Cookies更新成功！")
+                        else:
+                            st.sidebar.error("❌ Cookies更新失败")
+                except Exception as e:
+                    st.sidebar.error(f"❌ 更新失败: {str(e)}")
+        else:
+            st.sidebar.info("💡 请先输入代币地址以启用cookies更新功能")
+        
         # 执行按钮
         st.sidebar.subheader("🎯 执行操作")
         
@@ -589,117 +381,6 @@ class StreamlitTokenFlowApp:
             'analyze_button': analyze_button,
             'crawl_button': crawl_button
         }
-    
-    def load_and_analyze_data(self, file_path, min_value_threshold=0):
-        """加载和分析数据"""
-        try:
-            # 显示进度
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # 初始化分析器
-            status_text.text("正在初始化分析器...")
-            progress_bar.progress(10)
-            
-            analyzer = TokenFlowAnalyzer()
-            
-            # 加载数据
-            status_text.text(f"正在加载数据文件: {Path(file_path).name}...")
-            progress_bar.progress(30)
-            
-            analyzer.load_data(file_path)
-            
-            # 应用价值过滤
-            if min_value_threshold > 0:
-                status_text.text(f"正在应用价值过滤 (>= ${min_value_threshold})...")
-                progress_bar.progress(50)
-                original_count = len(analyzer.df)
-                analyzer.df = analyzer.df[analyzer.df['value'] >= min_value_threshold]
-                filtered_count = len(analyzer.df)
-                st.info(f"价值过滤: {original_count} → {filtered_count} 条记录")
-            
-            # 计算净流动
-            status_text.text("正在计算净流入/流出...")
-            progress_bar.progress(70)
-            
-            analyzer.calculate_net_flows()
-            
-            # 完成
-            status_text.text("分析完成！")
-            progress_bar.progress(100)
-            
-            time.sleep(0.5)
-            progress_bar.empty()
-            status_text.empty()
-            
-            return analyzer
-            
-        except Exception as e:
-            st.error(f"数据加载失败: {str(e)}")
-            return None
-    
-    def filter_data_by_types(self, df, selected_types):
-        """根据地址类型筛选数据"""
-        if "全部" in selected_types:
-            return df
-        return df[df['address_type'].isin(selected_types)]
-    
-    def render_summary_metrics(self, analyzer):
-        """渲染汇总指标"""
-        st.subheader("📊 总体概览")
-        
-        df = analyzer.net_flows_df
-        
-        # 计算指标（基于代币数量和美元价值）
-        total_addresses = len(df)
-        total_transactions = df['total_transactions'].sum()
-        total_net_inflow_tokens = df[df['net_tokens'] > 0]['net_tokens'].sum()
-        total_net_outflow_tokens = abs(df[df['net_tokens'] < 0]['net_tokens'].sum())
-        total_net_inflow = df[df['net_value'] > 0]['net_value'].sum()
-        total_net_outflow = abs(df[df['net_value'] < 0]['net_value'].sum())
-        net_balance = total_net_inflow - total_net_outflow
-        net_balance_tokens = total_net_inflow_tokens - total_net_outflow_tokens
-        
-        # 显示指标
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        with col1:
-            st.metric(
-                label="📍 总地址数",
-                value=f"{total_addresses:,}",
-                help="参与交易的唯一地址数量"
-            )
-        
-        with col2:
-            st.metric(
-                label="📝 总交易数",
-                value=f"{total_transactions:,}",
-                help="所有地址的交易总数"
-            )
-        
-        with col3:
-            st.metric(
-                label="🪙 总净流入(代币)",
-                value=self.format_tokens(total_net_inflow_tokens),
-                help="所有地址净流入的代币数量总和"
-            )
-        
-        with col4:
-            st.metric(
-                label="🪙 总净流出(代币)",
-                value=self.format_tokens(total_net_outflow_tokens),
-                delta_color="inverse",
-                help="所有地址净流出的代币数量总和"
-            )
-        
-        with col5:
-            st.metric(
-                label="� 净平衡(美元)",
-                value=self.format_currency(net_balance),
-                delta=f"{'+' if net_balance >= 0 else ''}{net_balance/1000:.1f}K" if abs(net_balance) > 1000 else None,
-                delta_color="normal" if net_balance >= 0 else "inverse",
-                help="总净流入与总净流出的差额（美元价值）"
-            )
     
     def render_flow_charts(self, analyzer, top_n=20):
         """渲染流动图表"""
@@ -751,39 +432,14 @@ class StreamlitTokenFlowApp:
                 )
                 fig_outflow.update_layout(height=400, yaxis={'categoryorder': 'total ascending'})
                 st.plotly_chart(fig_outflow, width='stretch')
-        
-        # 地址类型分布饼图
-        st.markdown("#### 🥧 地址类型分布")
-        type_counts = df['address_type'].value_counts()
-        
-        fig_pie = px.pie(
-            values=type_counts.values,
-            names=type_counts.index,
-            title="地址类型分布",
-            color=type_counts.index,
-            color_discrete_map={t: self.get_address_type_color(t) for t in type_counts.index}
-        )
-        fig_pie.update_layout(height=400)
-        fig_pie.update_traces(
-            hovertemplate="<b>%{label}</b><br>" +
-                         "数量: %{value}<br>" +
-                         "占比: %{percent}<br>" +
-                         "<extra></extra>"
-        )
-        st.plotly_chart(fig_pie, width='stretch')
-        
-        # 添加按类型复制地址功能
-        with st.expander("🥧 饼图区域 - 按类型复制地址", expanded=False):
-            st.markdown("*基于当前饼图显示的地址类型分布*")
-            self.render_address_copy_buttons(df, "chart_section")
     
     def render_all_addresses_table(self, analyzer):
         """渲染所有地址的详细表格，按净流入量排序"""
-        st.subheader("📋 所有地址详情表")
+        st.subheader("📋 完整地址表 - 按净流量排序")
         
         df = analyzer.net_flows_df.copy()
         
-        # 按净流入量从大到小排序
+        # 按净流入量从大到小排序（从大流入到大流出）
         df = df.sort_values('net_tokens', ascending=False)
         
         # 添加排名列
@@ -792,7 +448,6 @@ class StreamlitTokenFlowApp:
         # 格式化显示数据
         display_df = df.copy()
         display_df['地址/名称'] = display_df['address'].apply(lambda x: self.format_address(x, 25, analyzer))
-        display_df['完整地址'] = display_df['address']  # 保留完整地址便于复制
         display_df['净流动(代币)'] = display_df['net_tokens'].apply(self.format_tokens)
         display_df['净流动(美元)'] = display_df['net_value'].apply(self.format_currency)
         display_df['流入(代币)'] = display_df['inflow_tokens'].apply(self.format_tokens)
@@ -800,117 +455,251 @@ class StreamlitTokenFlowApp:
         display_df['交易数'] = display_df['total_transactions']
         display_df['类型'] = display_df['address_type']
         
-        # 添加筛选和搜索功能
-        col1, col2, col3 = st.columns([1, 1, 2])
+        # 标记被排除的地址
+        display_df['是否排除'] = display_df['address'].apply(analyzer._is_excluded_address)
+        
+        # 选择要显示的列
+        display_columns = ['排名', '地址/名称', '净流动(代币)', '净流动(美元)', '流入(代币)', '流出(代币)', '交易数', '类型']
+        
+        # 为被排除的地址在地址/名称列添加标识
+        display_df['地址/名称'] = display_df.apply(lambda row: 
+            f"🔘 {row['地址/名称']}" if row['是否排除'] else row['地址/名称'], axis=1)
+        
+        # 直接显示数据框，不使用复杂的样式
+        final_df = display_df[display_columns]
+        
+        # 显示完整数据表
+        st.dataframe(
+            final_df,
+            width='stretch',
+            height=800,
+            use_container_width=True
+        )
+        
+        # 添加说明
+        st.markdown("""
+        **🔍 表格说明：**
+        - 🟢 **正常显示**：真实交易地址
+        - 🔘 **带圆圈标识**：被排除的地址（聚合器、池子、交易所等）
+        - 排序方式：按净流量从大流入到大流出排序
+        """)
+        
+        # 移除了底部统计信息，统计数据已移至顶部
+        
+        # 下载按钮
+        csv = final_df.to_csv(index=False, encoding='utf-8-sig')
+        st.download_button(
+            label="📥 下载完整数据为CSV",
+            data=csv,
+            file_name=f"complete_addresses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+    
+    def load_and_analyze_data(self, file_path, min_value_threshold=0):
+        """加载和分析数据"""
+        try:
+            # 显示进度
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # 初始化分析器
+            status_text.text("🔄 初始化分析器...")
+            progress_bar.progress(10)
+            
+            analyzer = TokenFlowAnalyzer()
+            
+            # 加载数据
+            status_text.text("📂 加载数据文件...")
+            progress_bar.progress(30)
+            
+            success = analyzer.load_data(file_path)
+            if not success:
+                progress_bar.empty()
+                status_text.empty()
+                st.error("❌ 数据加载失败")
+                st.error("请检查数据文件格式是否正确")
+                return None
+            
+            # 分析净流动
+            status_text.text("🔍 分析净流动...")
+            progress_bar.progress(60)
+            
+            analyzer.calculate_net_flows()
+            
+            # 应用筛选
+            if min_value_threshold > 0:
+                status_text.text("🎯 应用价值筛选...")
+                progress_bar.progress(80)
+                
+                analyzer.filter_by_value(min_value_threshold)
+            
+            # 完成
+            status_text.text("✅ 分析完成！")
+            progress_bar.progress(100)
+            
+            time.sleep(0.5)  # 让用户看到完成状态
+            progress_bar.empty()
+            status_text.empty()
+            
+            return analyzer
+            
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(f"❌ 分析过程中出现错误: {str(e)}")
+            st.error("请检查数据文件格式或联系技术支持")
+            return None
+    
+    def crawl_and_analyze_data(self, config):
+        """爬取并分析数据"""
+        try:
+            st.session_state.crawl_in_progress = True
+            
+            # 显示进度
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # 初始化爬虫
+            status_text.text("🔄 初始化爬虫...")
+            progress_bar.progress(5)
+            
+            crawler = SolscanAnalyzer()
+            
+            # 开始爬取
+            status_text.text("🕸️ 开始爬取数据...")
+            progress_bar.progress(10)
+            
+            all_data = []
+            page = 1
+            max_pages = config['max_pages']
+            
+            while page <= max_pages:
+                status_text.text(f"📡 爬取第 {page}/{max_pages} 页...")
+                progress = 10 + int((page / max_pages) * 60)
+                progress_bar.progress(progress)
+                
+                data = crawler.get_token_transfers(
+                    address=config['token_address'],
+                    page=page,
+                    from_time=config.get('from_time'),
+                    to_time=config.get('to_time'),
+                    value_filter=config.get('value_filter')
+                )
+                
+                if not data or not data.get('data'):
+                    status_text.text(f"⚠️ 第 {page} 页无数据，停止爬取")
+                    break
+                
+                all_data.extend(data['data'])
+                page += 1
+                
+                time.sleep(0.5)  # 防止请求过快
+            
+            if not all_data:
+                st.error("❌ 未爬取到任何数据")
+                return None
+            
+            # 保存数据
+            status_text.text("💾 保存爬取数据...")
+            progress_bar.progress(75)
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            file_path = f"storage/solscan_data_{timestamp}.json"
+            
+            os.makedirs("storage", exist_ok=True)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(all_data, f, ensure_ascii=False, indent=2)
+            
+            # 分析数据
+            status_text.text("🔍 分析爬取数据...")
+            progress_bar.progress(85)
+            
+            analyzer = TokenFlowAnalyzer()
+            success = analyzer.load_data(file_path)
+            
+            if not success:
+                st.error("❌ 数据分析失败")
+                return None
+            
+            analyzer.calculate_net_flows()
+            
+            # 完成
+            status_text.text("✅ 爬取和分析完成！")
+            progress_bar.progress(100)
+            
+            time.sleep(0.5)
+            progress_bar.empty()
+            status_text.empty()
+            
+            st.success(f"🎉 成功爬取 {len(all_data)} 条交易记录！")
+            
+            return analyzer
+            
+        except Exception as e:
+            st.error(f"❌ 爬取过程中出现错误: {str(e)}")
+            return None
+        finally:
+            st.session_state.crawl_in_progress = False
+    
+    def render_summary_metrics(self, analyzer):
+        """渲染总结指标"""
+        st.subheader("📊 总体概览")
+        
+        df = analyzer.net_flows_df
+        
+        # 计算关键指标
+        total_addresses = len(df)
+        net_inflow_addresses = len(df[df['net_tokens'] > 0])
+        net_outflow_addresses = len(df[df['net_tokens'] < 0])
+        total_net_tokens = df['net_tokens'].sum()
+        total_net_value = df['net_value'].sum()
+        
+        # 过滤出真实交易地址（排除聚合器、池子、交易所）
+        real_traders_df = df[df['address'].apply(analyzer._is_real_trader_address)]
+        
+        # 计算真实交易地址的统计数据
+        real_inflow_df = real_traders_df[real_traders_df['net_tokens'] > 0]
+        real_outflow_df = real_traders_df[real_traders_df['net_tokens'] < 0]
+        
+        real_total_inflow_tokens = real_inflow_df['net_tokens'].sum() if len(real_inflow_df) > 0 else 0
+        real_total_outflow_tokens = abs(real_outflow_df['net_tokens'].sum()) if len(real_outflow_df) > 0 else 0
+        
+        # 计算平均每个真实净流入地址的流入量
+        avg_inflow_per_address = real_total_inflow_tokens / len(real_inflow_df) if len(real_inflow_df) > 0 else 0
+        # 计算平均每个真实净流出地址的流出量
+        avg_outflow_per_address = real_total_outflow_tokens / len(real_outflow_df) if len(real_outflow_df) > 0 else 0
+        
+        # 获取最大净流入和净流出
+        max_inflow = df['net_tokens'].max()
+        max_outflow = df['net_tokens'].min()
+        
+        # 显示指标
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            # 类型筛选
-            available_types = sorted(df['address_type'].unique().tolist())
-            all_types = ["全部"] + available_types
-            selected_type = st.selectbox("🏷️ 筛选类型:", all_types, key="all_addresses_type_filter")
+            st.metric(
+                label="🏠 总地址数",
+                value=f"{total_addresses:,}",
+                delta=f"真实交易: {len(real_traders_df):,}",
+                help=f"参与交易的唯一地址总数 (包含 {total_addresses - len(real_traders_df)} 个聚合器/池子/交易所)"
+            )
         
         with col2:
-            # 净流动筛选
-            flow_options = ["全部", "仅净流入", "仅净流出", "仅大额(>10K代币)"]
-            selected_flow = st.selectbox("💰 净流动筛选:", flow_options, key="all_addresses_flow_filter")
+            st.metric(
+                label="📈 净流入地址",
+                value=f"{net_inflow_addresses:,}",
+                delta=f"平均: {self.format_tokens(avg_inflow_per_address)}",
+                help=f"净流入为正的地址数量 (占比: {net_inflow_addresses/total_addresses*100:.1f}%) \n平均值基于 {len(real_inflow_df)} 个真实交易地址计算"
+            )
         
         with col3:
-            # 搜索功能
-            search_term = st.text_input("🔍 搜索地址:", placeholder="输入地址或标签的部分字符", key="all_addresses_search")
-        
-        # 应用筛选
-        filtered_df = display_df.copy()
-        
-        # 类型筛选
-        if selected_type != "全部":
-            filtered_df = filtered_df[filtered_df['address_type'] == selected_type]
-        
-        # 净流动筛选
-        if selected_flow == "仅净流入":
-            filtered_df = filtered_df[df['net_tokens'] > 0]
-        elif selected_flow == "仅净流出":
-            filtered_df = filtered_df[df['net_tokens'] < 0]
-        elif selected_flow == "仅大额(>10K代币)":
-            filtered_df = filtered_df[abs(df['net_tokens']) > 10000]
-        
-        # 搜索筛选
-        if search_term:
-            mask = (
-                filtered_df['address'].str.contains(search_term, case=False, na=False) |
-                filtered_df['地址/名称'].str.contains(search_term, case=False, na=False)
+            st.metric(
+                label="� 净流出地址",
+                value=f"{net_outflow_addresses:,}",
+                delta=f"平均: {self.format_tokens(avg_outflow_per_address)}",
+                delta_color="inverse",
+                help=f"净流出为负的地址数量 (占比: {net_outflow_addresses/total_addresses*100:.1f}%)"
             )
-            filtered_df = filtered_df[mask]
-        
-        # 显示筛选结果统计
-        total_filtered = len(filtered_df)
-        total_original = len(df)
-        
-        if selected_type != "全部" or selected_flow != "全部" or search_term:
-            st.info(f"📊 筛选结果: 显示 {total_filtered} 个地址 (总共 {total_original} 个)")
-        
-        # 分页显示
-        items_per_page = 50
-        total_pages = (total_filtered + items_per_page - 1) // items_per_page
-        
-        if total_pages > 1:
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                page = st.selectbox(
-                    f"📄 选择页面 (共 {total_pages} 页):",
-                    range(1, total_pages + 1),
-                    key="all_addresses_page"
-                )
-            
-            start_idx = (page - 1) * items_per_page
-            end_idx = min(start_idx + items_per_page, total_filtered)
-            page_df = filtered_df.iloc[start_idx:end_idx].copy()
-            
-            st.caption(f"显示第 {start_idx + 1}-{end_idx} 条，共 {total_filtered} 条记录")
-        else:
-            page_df = filtered_df.copy()
-        
-        if not page_df.empty:
-            # 重新计算排名
-            page_df['显示排名'] = range(1, len(page_df) + 1) if selected_type != "全部" or selected_flow != "全部" or search_term else page_df['排名']
-            
-            # 显示数据表
-            st.dataframe(
-                page_df[['显示排名', '地址/名称', '完整地址', '净流动(代币)', '净流动(美元)', '流入(代币)', '流出(代币)', '交易数', '类型']],
-                width='stretch',
-                height=600,
-                use_container_width=True
-            )
-            
-            # 统计信息
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                net_inflow_count = len(page_df[df.loc[page_df.index, 'net_tokens'] > 0])
-                st.metric("📈 净流入地址", f"{net_inflow_count} 个")
-            
-            with col2:
-                net_outflow_count = len(page_df[df.loc[page_df.index, 'net_tokens'] < 0])
-                st.metric("📉 净流出地址", f"{net_outflow_count} 个")
-            
-            with col3:
-                total_net_tokens = df.loc[page_df.index, 'net_tokens'].sum()
-                st.metric("🪙 当前页净流动", self.format_tokens(total_net_tokens))
-            
-            with col4:
-                total_net_value = df.loc[page_df.index, 'net_value'].sum()
-                st.metric("💰 当前页净价值", self.format_currency(total_net_value))
-            
-            # 下载按钮
-            csv = page_df.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button(
-                label="📥 下载当前数据为CSV",
-                data=csv,
-                file_name=f"all_addresses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            
-        else:
-            st.info("没有符合筛选条件的地址数据")
     
     def run(self):
         """运行应用程序"""
@@ -926,130 +715,60 @@ class StreamlitTokenFlowApp:
             st.warning("请配置爬取参数或选择现有数据文件。")
             st.stop()
         
-        # 处理爬取操作
-        if sidebar_config['crawl_button']:
-            st.session_state.crawl_in_progress = True
-            st.session_state.analysis_complete = False
-            
-            st.info("🚀 开始爬取新数据...")
-            
-            # 爬取数据
-            crawl_result = self.crawl_new_data(sidebar_config['crawl_config'])
-            
-            if crawl_result:
-                st.success(f"✅ 数据爬取成功！文件保存为: {Path(crawl_result).name}")
-                
-                # 自动开始分析新爬取的数据
-                st.info("🔄 正在分析新爬取的数据...")
-                
-                analyzer = self.load_and_analyze_data(
-                    crawl_result,
-                    0  # 使用默认的最小价值过滤
-                )
-                
+        # 处理用户操作
+        if sidebar_config['analyze_button']:
+            # 分析现有数据
+            if sidebar_config['selected_file']:
+                analyzer = self.load_and_analyze_data(sidebar_config['selected_file'])
                 if analyzer:
                     st.session_state.analyzer = analyzer
-                    st.session_state.analysis_complete = True
-                    st.success("✅ 数据分析完成！")
-                else:
-                    st.error("❌ 数据分析失败！")
-            else:
-                st.error("❌ 数据爬取失败！")
-            
-            st.session_state.crawl_in_progress = False
-            st.rerun()
+                    st.session_state.data_loaded = True
+                    st.rerun()
         
-        # 处理分析操作（使用现有数据）
-        elif sidebar_config['analyze_button'] or st.session_state.analysis_complete:
-            
-            # 加载和分析数据
-            if sidebar_config['analyze_button'] or not st.session_state.analysis_complete:
-                with st.spinner("正在分析数据..."):
-                    analyzer = self.load_and_analyze_data(
-                        sidebar_config['selected_file'],
-                        0  # 使用默认的最小价值过滤
-                    )
-                
+        elif sidebar_config['crawl_button']:
+            # 爬取新数据
+            if sidebar_config['crawl_config']:
+                analyzer = self.crawl_and_analyze_data(sidebar_config['crawl_config'])
                 if analyzer:
                     st.session_state.analyzer = analyzer
-                    st.session_state.analysis_complete = True
-                    st.success("✅ 数据分析完成！")
-                else:
-                    st.error("❌ 数据分析失败！")
-                    st.stop()
-            
+                    st.session_state.data_loaded = True
+                    st.rerun()
+        
+        # 显示分析结果
+        if st.session_state.data_loaded and st.session_state.analyzer:
             analyzer = st.session_state.analyzer
             
-            if analyzer and analyzer.net_flows_df is not None:
-                # 渲染分析结果
-                self.render_summary_metrics(analyzer)
-                
-                st.divider()
-                
-                self.render_flow_charts(analyzer, 20)  # 使用默认的显示数量
-                
-                st.divider()
-                
-                # 添加所有地址表格
-                self.render_all_addresses_table(analyzer)
-                
-                # 页脚信息
-                st.markdown("---")
-                st.markdown("""
-                <div style="text-align: center; color: #666; font-size: 0.9rem;">
-                    🔍 Solscan代币流动分析平台 | 
-                    📊 数据更新时间: {} | 
-                    🛠️ 由 LeviathanSunset 开发
-                </div>
-                """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), unsafe_allow_html=True)
+            # 显示总结指标
+            self.render_summary_metrics(analyzer)
+            
+            # 显示图表
+            self.render_flow_charts(analyzer, 20)  # 使用默认的显示数量
+            
+            # 显示完整地址表
+            self.render_all_addresses_table(analyzer)
             
         else:
-            # 初始状态页面
-            st.info("👆 请在左侧面板选择操作模式并点击相应按钮")
+            # 欢迎页面
+            st.markdown("""
+            ## 🔍 代币流动分析工具
             
-            # 显示使用说明
-            with st.expander("📖 使用说明", expanded=True):
-                st.markdown("""
-                ### 🚀 新功能：一键爬取和分析
-                
-                现在支持两种操作模式：
-                
-                #### 📂 使用现有数据
-                1. **选择文件**: 从已有的数据文件中选择
-                2. **设置参数**: 配置分析参数（排行榜数量、价值过滤等）
-                3. **开始分析**: 点击 "🚀 开始分析" 按钮
-                
-                #### 🔄 爬取新数据
-                1. **配置爬取**: 设置代币地址、页数限制、价值过滤等
-                2. **时间范围**: 可选择特定时间段的数据
-                3. **一键执行**: 点击 "🕸️ 爬取并分析" 按钮自动完成爬取和分析
-                
-                ### 🎯 核心功能：
-                - 📊 **实时分析**: 计算每个地址的净流入和净流出
-                - 🏆 **智能排行**: 显示净流入/流出最大的地址
-                - 📈 **可视化**: 交互式图表展示数据分布
-                - 🔍 **多重筛选**: 按地址类型和关键词筛选数据
-                - 📥 **数据导出**: 支持CSV格式下载
-                - 🕸️ **自动爬取**: 无需手动运行命令行工具
-                
-                ### 💡 使用技巧：
-                - **时间过滤**: 启用时间范围可以分析特定时段的交易
-                - **价值过滤**: 设置最小价值可以专注于大额交易
-                - **地址类型**: 使用类型筛选快速找到鲸鱼或做市商
-                """)
+            ### 功能特点：
+            - 🕸️ **实时数据爬取**: 从Solscan API获取最新交易数据
+            - 📊 **净流动分析**: 自动计算每个地址的净流入/净流出
+            - 🏷️ **地址标签识别**: 自动识别地址类型（鲸鱼、做市商等）
+            - 📈 **可视化图表**: 直观展示流动趋势和排行榜
+            - 📋 **完整数据表**: 详细的地址流动信息
+            - 💾 **数据导出**: 支持CSV格式下载
             
-            # 显示系统状态
-            with st.expander("⚙️ 系统状态"):
-                data_files = self.load_available_data_files()
-                st.write(f"📁 已有数据文件: {len(data_files)} 个")
-                
-                if data_files:
-                    latest_file = data_files[0]
-                    file_time = datetime.fromtimestamp(Path(latest_file).stat().st_mtime)
-                    st.write(f"🕐 最新数据: {file_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                st.write(f"🔧 爬取状态: {'进行中' if st.session_state.crawl_in_progress else '空闲'}")
-                st.write(f"📊 分析状态: {'已完成' if st.session_state.analysis_complete else '未开始'}")
+            ### 使用方法：
+            1. 在左侧选择操作模式（使用现有数据或爬取新数据）
+            2. 配置相应的参数
+            3. 点击执行按钮开始分析
+            4. 查看分析结果和可视化图表
+            
+            ### 开始使用：
+            👈 请在左侧面板选择操作模式并配置参数
+            """)
 
 def main():
     """主函数"""

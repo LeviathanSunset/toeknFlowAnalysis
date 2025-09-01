@@ -36,74 +36,93 @@ class TokenFlowAnalyzer:
         
         Args:
             file_path: 数据文件路径
+            
+        Returns:
+            bool: 加载成功返回True，失败返回False
         """
-        if file_path:
-            self.data_file = file_path
-        
-        if not self.data_file:
-            # 查找最新的数据文件
-            storage_dir = Path("storage")
-            if storage_dir.exists():
-                json_files = list(storage_dir.glob("solscan_data_*.json"))
-                if json_files:
-                    self.data_file = max(json_files, key=lambda x: x.stat().st_mtime)
-                    print(f"🔍 自动选择最新数据文件: {self.data_file}")
+        try:
+            if file_path:
+                self.data_file = file_path
+            
+            if not self.data_file:
+                # 查找最新的数据文件
+                storage_dir = Path("storage")
+                if storage_dir.exists():
+                    json_files = list(storage_dir.glob("solscan_data_*.json"))
+                    if json_files:
+                        self.data_file = max(json_files, key=lambda x: x.stat().st_mtime)
+                        print(f"🔍 自动选择最新数据文件: {self.data_file}")
+                    else:
+                        print("❌ 未找到数据文件")
+                        return False
                 else:
-                    raise FileNotFoundError("未找到数据文件")
+                    print("❌ storage 目录不存在")
+                    return False
+            
+            print(f"📂 加载数据文件: {self.data_file}")
+            
+            with open(self.data_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if 'data' not in data:
+                print("❌ 数据文件格式错误，缺少 'data' 字段")
+                return False
+            
+            # 🆕 优先从文件中的metadata获取代币总供应量
+            self.token_metadata = None
+            if 'metadata' in data:
+                # 检查是否有代币元数据（总供应量等）
+                metadata = data['metadata']
+                if 'actual_total_supply' in metadata:
+                    self.token_metadata = metadata
+                    print(f"✅ 从文件中找到代币元数据，总供应量: {metadata['actual_total_supply']:,.2f}")
+                elif 'total_supply_raw' in metadata and 'decimals' in metadata:
+                    # 如果有原始供应量和小数位，计算实际供应量
+                    raw_supply = float(metadata['total_supply_raw'])
+                    decimals = int(metadata['decimals'])
+                    actual_supply = raw_supply / (10 ** decimals)
+                    metadata['actual_total_supply'] = actual_supply
+                    self.token_metadata = metadata
+                    print(f"✅ 从文件计算出总供应量: {actual_supply:,.2f}")
+            
+            # 加载地址标签映射
+            if 'metadata' in data and 'accounts' in data['metadata']:
+                for addr, info in data['metadata']['accounts'].items():
+                    if 'account_label' in info:
+                        self.address_labels[addr] = info['account_label']
+                    elif 'account_domain' in info:
+                        self.address_labels[addr] = info['account_domain']
+            
+            # 加载额外的地址标签文件
+            labels_file = Path("settings/address_labels.json")
+            if labels_file.exists():
+                try:
+                    with open(labels_file, 'r', encoding='utf-8') as f:
+                        extra_labels = json.load(f)
+                        self.address_labels.update(extra_labels)
+                    print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
+                except Exception as e:
+                    print(f"⚠️ 加载额外地址标签失败: {e}")
             else:
-                raise FileNotFoundError("storage 目录不存在")
-        
-        print(f"📂 加载数据文件: {self.data_file}")
-        
-        with open(self.data_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        if 'data' not in data:
-            raise ValueError("数据文件格式错误，缺少 'data' 字段")
-        
-        # 🆕 优先从文件中的metadata获取代币总供应量
-        self.token_metadata = None
-        if 'metadata' in data:
-            # 检查是否有代币元数据（总供应量等）
-            metadata = data['metadata']
-            if 'actual_total_supply' in metadata:
-                self.token_metadata = metadata
-                print(f"✅ 从文件中找到代币元数据，总供应量: {metadata['actual_total_supply']:,.2f}")
-            elif 'total_supply_raw' in metadata and 'decimals' in metadata:
-                # 如果有原始供应量和小数位，计算实际供应量
-                raw_supply = float(metadata['total_supply_raw'])
-                decimals = int(metadata['decimals'])
-                actual_supply = raw_supply / (10 ** decimals)
-                metadata['actual_total_supply'] = actual_supply
-                self.token_metadata = metadata
-                print(f"✅ 从文件计算出总供应量: {actual_supply:,.2f}")
-        
-        # 加载地址标签映射
-        if 'metadata' in data and 'accounts' in data['metadata']:
-            for addr, info in data['metadata']['accounts'].items():
-                if 'account_label' in info:
-                    self.address_labels[addr] = info['account_label']
-                elif 'account_domain' in info:
-                    self.address_labels[addr] = info['account_domain']
-        
-        # 加载额外的地址标签文件
-        labels_file = Path("settings/address_labels.json")
-        if labels_file.exists():
-            try:
-                with open(labels_file, 'r', encoding='utf-8') as f:
-                    extra_labels = json.load(f)
-                    self.address_labels.update(extra_labels)
                 print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
-            except Exception as e:
-                print(f"⚠️ 加载额外地址标签失败: {e}")
-        else:
-            print(f"🏷️ 加载了 {len(self.address_labels)} 个地址标签")
-        
-        self.df = pd.DataFrame(data['data'])
-        print(f"✅ 成功加载 {len(self.df)} 条交易记录")
-        
-        # 数据预处理
-        self._preprocess_data()
+            
+            self.df = pd.DataFrame(data['data'])
+            print(f"✅ 成功加载 {len(self.df)} 条交易记录")
+            
+            # 数据预处理
+            self._preprocess_data()
+            
+            return True  # 成功加载
+            
+        except FileNotFoundError as e:
+            print(f"❌ 文件未找到: {str(e)}")
+            return False
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON格式错误: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"❌ 数据加载失败: {str(e)}")
+            return False
         
     def _preprocess_data(self):
         """数据预处理"""
@@ -293,6 +312,12 @@ class TokenFlowAnalyzer:
         
         return self.net_flows_df
     
+    def analyze_net_flows(self):
+        """
+        分析净流动的别名方法，为了兼容性
+        """
+        return self.calculate_net_flows()
+    
     def _classify_address_type(self, net_tokens, inflow_tokens, outflow_tokens, total_transactions):
         """
         分类地址类型（基于代币流通量百分比）
@@ -315,6 +340,10 @@ class TokenFlowAnalyzer:
         
         # 计算地址的最大持仓影响（流入或流出的最大值）
         max_position = max(abs(inflow_tokens), abs(outflow_tokens))
+        
+        # 优先处理无净流动的情况
+        if net_tokens == 0:
+            return "无净流动"
         
         if total_transactions >= active_threshold:
             # 高频交易者
@@ -360,6 +389,42 @@ class TokenFlowAnalyzer:
                 return "普通卖家"
             else:
                 return "无净流动"
+    
+    def _is_excluded_address(self, address):
+        """
+        判断地址是否应该从统计中排除（聚合器、池子、交易所等）
+        
+        Args:
+            address: 地址
+        
+        Returns:
+            bool: 是否应该排除
+        """
+        if address not in self.address_labels:
+            return False
+        
+        label = self.address_labels[address]
+        
+        # 排除的关键词
+        excluded_keywords = [
+            'Exchange', 'Aggregator', 'AMM', 'Pool', 'Authority', 
+            'CLMM', 'CPMM', 'DCA', 'Auction', 'Market', 'Raydium',
+            'Jupiter', 'Magic Eden', 'TensorSwap', 'Pump.fun'
+        ]
+        
+        return any(keyword in label for keyword in excluded_keywords)
+    
+    def _is_real_trader_address(self, address):
+        """
+        判断地址是否为真实交易地址（排除聚合器、池子、交易所）
+        
+        Args:
+            address: 地址
+        
+        Returns:
+            bool: 是否为真实交易地址
+        """
+        return not self._is_excluded_address(address)
     
     def format_address_display(self, address, max_length=20):
         """
