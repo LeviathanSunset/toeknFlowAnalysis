@@ -1,149 +1,183 @@
-# Solana 代币流动分析工具
+# Solscan Token Flow Analyzer v2.0
 
-一个用于爬取 Solscan API 数据并分析代币流动的完整工具套件。
+一体化代币流动分析工具，集成数据爬取、自动防护绕过、数据分析功能。
 
-## 功能特性
+## ✨ 主要功能
 
-### 🕷️ 数据爬取 (crawler.py)
-- **自动翻页爬取**: 支持自动翻页直到没有更多数据
-- **代理支持**: 支持HTTP/HTTPS代理配置
-- **重试机制**: 内置指数退避重试策略
-- **配置驱动**: 所有参数可通过YAML配置文件管理
-- **数据保存**: 自动保存为JSON格式，包含爬取元信息
+- 🚀 **智能数据爬取** - 从 Solscan API 获取代币转账数据
+- 🛡️ **自动防护绕过** - 智能检测并自动更新 cf_clearance，绕过 Cloudflare 防护
+- 📊 **数据分析** - 自动分析交易数据，生成统计报告
+- 💾 **多格式导出** - 支持 JSON 和 CSV 格式数据导出
+- 🔄 **自动重试** - 智能重试机制，提高数据获取成功率
+- ⚙️ **灵活配置** - 支持代理、参数自定义配置
 
-### 📊 流动分析 (analysis.py)
-- **净流入/流出分析**: 计算每个地址的代币净流动
-- **多维度排行榜**: 
-  - 净流入排行榜（大买家）
-  - 净流出排行榜（大卖家）
-  - 总流入排行榜（活跃接收方）
-  - 总流出排行榜（活跃发送方）
-- **详细报告**: 生成完整的JSON分析报告
-- **统计摘要**: 提供关键指标和数据概览
+## 🚀 快速开始
 
-## 快速开始
-
-### 1. 环境要求
+### 1. 安装依赖
 ```bash
-Python 3.7+
-requests
-PyYAML
+pip install requests pyyaml pandas undetected-chromedriver selenium
 ```
 
 ### 2. 配置设置
-编辑 `settings/config.yaml` 文件：
-```yaml
-api:
-  base_url: "https://api.solscan.io"
-  endpoint: "/v2/account/transfer"
-  
-parameters:
-  address: "your_token_address"
-  from_time: 1756547700
-  to_time: 1756634100
-  
-proxy:
-  http: "http://127.0.0.1:10808"
-  https: "http://127.0.0.1:10808"
-```
+编辑 `settings/config.yaml` 文件，配置代理、cookies 等参数。
 
-### 3. 数据爬取
+### 3. 运行分析
 ```bash
-# 使用配置文件自动爬取
-python crawler.py
-
-# 自动翻页直到没有更多数据
+python solscan_analyzer.py
 ```
 
-### 4. 流动分析
-```bash
-# 自动分析最新数据
-python analysis.py
-
-# 指定数据文件
-python analysis.py storage/your_data.json
-
-# 自定义显示数量
-python analysis.py -l 50
-```
-
-## 项目结构
+## 📁 项目结构
 
 ```
-flow/
-├── crawler.py              # 主爬虫脚本
-├── analysis.py             # 流动分析脚本
+toeknFlowAnalysis/
+├── solscan_analyzer.py     # 🌟 主程序文件（一体化工具）
 ├── settings/
-│   └── config.yaml         # 配置文件
-├── storage/                # 数据存储目录
-│   ├── solscan_data_*.json # 爬取的原始数据
-│   └── analysis_report_*.json # 分析报告
-├── ANALYSIS_README.md      # 分析脚本使用说明
-├── CONFIG_README.md        # 配置文件说明
-└── README.md              # 项目说明
+│   └── config.yaml         # ⚙️ 配置文件
+├── storage/               # 📁 数据存储目录
+├── README.md              # 📖 项目说明
+└── CONFIG_README.md       # ⚙️ 配置说明
 ```
 
-## 使用示例
+## 🎯 使用示例
 
-### 数据爬取示例
+### 基础使用
+程序会自动使用配置文件中的默认代币进行分析：
 ```bash
-python crawler.py
-```
-输出：
-```
-🚀 开始爬取 Solscan 数据...
-📄 正在爬取第 1 页...
-📄 正在爬取第 2 页...
-📄 正在爬取第 3 页...
-🎉 爬取完成！📊 总计爬取 3 页，378 条记录
+python solscan_analyzer.py
 ```
 
-### 流动分析示例
-```bash
-python analysis.py
+### 自定义参数
+你也可以修改 `main()` 函数中的参数：
+```python
+result = analyzer.run_analysis(
+    token_address="your_token_address",  # 自定义代币地址
+    from_time=1756544400,               # 开始时间戳
+    to_time=1756548000,                 # 结束时间戳
+    value_filter=30,                    # 最小交易价值($)
+    max_pages=50                        # 最大爬取页数
+)
 ```
-输出关键信息：
-- 📊 分析摘要：总交易记录、涉及地址数、总交易数量
-- 📈 净流入排行榜：显示最大的买家地址
-- 📉 净流出排行榜：显示最大的卖家地址
-- 💰 流入排行榜：按总接收量排序
-- 💸 流出排行榜：按总发送量排序
 
-## 核心功能详解
+## 📊 输出结果
 
-### 爬虫功能
-- **自动分页**: 从第1页开始，自动翻页直到API返回空数据
-- **错误处理**: 内置重试机制，处理网络超时和API限制
-- **数据完整性**: 保存爬取元信息，包括总页数、记录数、失败页面等
-- **配置灵活性**: 支持时间范围、代币地址、分页大小等参数配置
+程序会生成以下文件：
+- `solscan_data_YYYYMMDD_HHMMSS.json` - 完整数据和分析结果
+- `solscan_data_YYYYMMDD_HHMMSS.csv` - 交易数据表格
 
-### 分析功能
-- **精确计算**: 基于代币原始数量计算，考虑代币精度
-- **多维排行**: 提供4个不同维度的排行榜
-- **统计洞察**: 计算净流入/流出地址数量、最大交易等关键指标
-- **数据导出**: 生成详细的JSON报告，包含所有地址的完整数据
+分析结果包括：
+- 📈 交易统计（总数、金额、价值）
+- 📍 地址分析（唯一发送/接收地址）
+- ⏰ 时间分析（时间跨度、交易密度）
+- 💰 价值分析（平均值、中位数、最大/最小值）
 
-## 配置说明
+## 🛡️ 自动防护绕过
 
-详细配置选项请参考：
-- [CONFIG_README.md](CONFIG_README.md) - 爬虫配置说明
-- [ANALYSIS_README.md](ANALYSIS_README.md) - 分析脚本说明
+程序具备智能防护绕过能力：
+- 自动检测 Cloudflare 阻拦
+- 使用真实浏览器获取新的 cf_clearance
+- 自动更新配置文件
+- 无缝重试失败的请求
 
-## 注意事项
+## ⚙️ 配置说明
 
-1. **API限制**: 请遵守Solscan API的使用限制
-2. **代理配置**: 如需使用代理，请确保代理服务正常运行
-3. **数据隐私**: 爬取的数据包含在.gitignore中，避免意外提交敏感信息
-4. **时间格式**: 配置文件中的时间使用Unix时间戳格式
+详细配置说明请参考 `CONFIG_README.md`。
 
-## 许可证
+主要配置项：
+- **API 设置** - 基础 URL、超时时间
+- **代理配置** - HTTP/HTTPS 代理支持
+- **请求头** - User-Agent、Accept 等
+- **Cookies** - 包含 cf_clearance 等认证信息
+- **重试策略** - 最大重试次数、退避策略
+- **翻页设置** - 最大页数、延迟时间
+- **目标代币** - 要分析的代币地址列表
 
-本项目仅供学习和研究使用。
+## 🔧 高级功能
 
-## 贡献
+### 自定义分析器
+```python
+from solscan_analyzer import SolscanAnalyzer
 
-欢迎提交Issue和Pull Request来改进项目。
+# 创建分析器
+analyzer = SolscanAnalyzer("path/to/config.yaml")
 
----
+# 只爬取数据
+data = analyzer.crawl_all_data(
+    address="token_address",
+    value_filter=100,
+    max_pages=20
+)
 
-**⚠️ 免责声明**: 本工具仅用于数据分析研究，请确保遵守相关API的使用条款和当地法律法规。
+# 只分析数据
+analysis = analyzer.analyze_data(data)
+
+# 保存结果
+analyzer.save_data(data, "custom_filename.json")
+```
+
+### 批量分析
+```python
+# 分析多个代币
+tokens = [
+    "5zCETicUCJqJ5Z3wbfFPZqtSpHPYqnggs1wX7ZRpump",
+    "another_token_address"
+]
+
+for token in tokens:
+    result = analyzer.run_analysis(token_address=token)
+    print(f"Token {token}: {result['data']['total_records']} transactions")
+```
+
+## 🛠️ 故障排除
+
+### 常见问题
+
+1. **cf_clearance 过期**
+   - 程序会自动检测并更新
+   - 确保安装了 Chrome 浏览器
+
+2. **代理连接失败**
+   - 检查代理设置是否正确
+   - 可以临时禁用代理测试
+
+3. **数据获取失败**
+   - 检查网络连接
+   - 确认 Solscan API 可访问性
+
+### 调试模式
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# 然后运行分析器
+analyzer = SolscanAnalyzer()
+```
+
+## 📊 性能特点
+
+- **高效爬取** - 支持并发和智能延迟
+- **内存优化** - 大数据集分批处理
+- **断点续传** - 支持失败页面重试
+- **实时监控** - 详细进度和状态显示
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+MIT License
+
+## 📝 更新日志
+
+### v2.0.0 (Current)
+- ✨ 全新一体化架构
+- 🛡️ 集成自动 cf_clearance 更新
+- 📊 内置数据分析功能
+- 💾 支持多格式数据导出
+- 🚀 优化性能和稳定性
+- 🧹 精简项目结构，整合为单文件
+
+### v1.x
+- 基础爬虫功能
+- 分离的分析工具
+- 手动配置管理
