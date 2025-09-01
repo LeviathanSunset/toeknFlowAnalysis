@@ -131,9 +131,22 @@ class StreamlitTokenFlowApp:
             label = analyzer.address_labels[address]
             return f"🏷️ {label[:max_length]}..." if len(label) > max_length else f"🏷️ {label}"
         
-        # 显示地址的前后部分
+        # 对于没有标注的地址，显示完整地址
+        return address
+    
+    def format_address_for_chart(self, address, max_length=12, analyzer=None):
+        """专门用于图表的地址格式化，保持紧凑显示"""
+        if not address:
+            return "N/A"
+        
+        # 尝试获取地址标签
+        if analyzer and hasattr(analyzer, 'address_labels') and address in analyzer.address_labels:
+            label = analyzer.address_labels[address]
+            return f"🏷️ {label[:max_length]}..." if len(label) > max_length else f"🏷️ {label}"
+        
+        # 对于图表，仍然使用截断显示以保持布局整洁
         if len(address) > max_length:
-            return f"{address[:8]}...{address[-6:]}"
+            return f"{address[:6]}...{address[-4:]}"
         else:
             return address
     
@@ -400,7 +413,7 @@ class StreamlitTokenFlowApp:
                 fig_inflow = px.bar(
                     top_inflows.head(10),
                     x='net_tokens',
-                    y=top_inflows.head(10)['address'].apply(lambda x: self.format_address(x, 12, analyzer)),
+                    y=top_inflows.head(10)['address'].apply(lambda x: self.format_address_for_chart(x, 12, analyzer)),
                     orientation='h',
                     color='address_type',
                     color_discrete_map={t: self.get_address_type_color(t) for t in top_inflows['address_type'].unique()},
@@ -423,7 +436,7 @@ class StreamlitTokenFlowApp:
                 fig_outflow = px.bar(
                     top_outflows_display,
                     x='net_outflow',
-                    y=top_outflows_display['address'].apply(lambda x: self.format_address(x, 12, analyzer)),
+                    y=top_outflows_display['address'].apply(lambda x: self.format_address_for_chart(x, 12, analyzer)),
                     orientation='h',
                     color='address_type',
                     color_discrete_map={t: self.get_address_type_color(t) for t in top_outflows_display['address_type'].unique()},
@@ -447,7 +460,7 @@ class StreamlitTokenFlowApp:
         
         # 格式化显示数据
         display_df = df.copy()
-        display_df['地址/名称'] = display_df['address'].apply(lambda x: self.format_address(x, 25, analyzer))
+        display_df['地址/名称'] = display_df['address'].apply(lambda x: self.format_address(x, analyzer=analyzer))
         display_df['净流动(代币)'] = display_df['net_tokens'].apply(self.format_tokens)
         display_df['净流动(美元)'] = display_df['net_value'].apply(self.format_currency)
         display_df['流入(代币)'] = display_df['inflow_tokens'].apply(self.format_tokens)
@@ -472,8 +485,7 @@ class StreamlitTokenFlowApp:
         st.dataframe(
             final_df,
             width='stretch',
-            height=800,
-            use_container_width=True
+            height=800
         )
         
         # 添加说明
@@ -586,7 +598,15 @@ class StreamlitTokenFlowApp:
                     value_filter=config.get('value_filter')
                 )
                 
-                if not data or not data.get('data'):
+                if not data:
+                    status_text.text(f"⚠️ 第 {page} 页请求失败，停止爬取")
+                    break
+                
+                if not isinstance(data, dict):
+                    status_text.text(f"⚠️ 第 {page} 页返回数据格式错误，停止爬取")
+                    break
+                    
+                if not data.get('data'):
                     status_text.text(f"⚠️ 第 {page} 页无数据，停止爬取")
                     break
                 
@@ -599,6 +619,12 @@ class StreamlitTokenFlowApp:
                 st.error("❌ 未爬取到任何数据")
                 return None
             
+            # 获取代币信息
+            status_text.text("📊 获取代币信息...")
+            progress_bar.progress(70)
+            
+            token_metadata = crawler.get_token_metadata(config['token_address'])
+            
             # 保存数据
             status_text.text("💾 保存爬取数据...")
             progress_bar.progress(75)
@@ -607,8 +633,20 @@ class StreamlitTokenFlowApp:
             file_path = f"storage/solscan_data_{timestamp}.json"
             
             os.makedirs("storage", exist_ok=True)
+            
+            # 构建正确的数据格式，包含代币信息
+            save_data = {
+                "data": all_data,
+                "metadata": {
+                    "crawl_time": timestamp,
+                    "token_address": config['token_address'],
+                    "total_records": len(all_data),
+                    "token_metadata": token_metadata  # 添加代币信息
+                }
+            }
+            
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(all_data, f, ensure_ascii=False, indent=2)
+                json.dump(save_data, f, ensure_ascii=False, indent=2)
             
             # 分析数据
             status_text.text("🔍 分析爬取数据...")
@@ -649,6 +687,7 @@ class StreamlitTokenFlowApp:
         
         # 计算关键指标
         total_addresses = len(df)
+        total_transactions = len(analyzer.df)  # 直接从原始数据获取总转账数
         net_inflow_addresses = len(df[df['net_tokens'] > 0])
         net_outflow_addresses = len(df[df['net_tokens'] < 0])
         total_net_tokens = df['net_tokens'].sum()
@@ -674,17 +713,25 @@ class StreamlitTokenFlowApp:
         max_outflow = df['net_tokens'].min()
         
         # 显示指标
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
                 label="🏠 总地址数",
                 value=f"{total_addresses:,}",
-                delta=f"真实交易: {len(real_traders_df):,}",
-                help=f"参与交易的唯一地址总数 (包含 {total_addresses - len(real_traders_df)} 个聚合器/池子/交易所)"
+                delta=f"总转账: {total_transactions:,}",
+                help=f"参与交易的唯一地址总数 (包含 {total_addresses - len(real_traders_df)} 个聚合器/池子/交易所)\n总转账数: {total_transactions:,} 笔"
             )
         
         with col2:
+            st.metric(
+                label="👤 真实交易地址",
+                value=f"{len(real_traders_df):,}",
+                delta=f"占比: {len(real_traders_df)/total_addresses*100:.1f}%",
+                help=f"排除聚合器、池子、交易所后的真实交易地址数量"
+            )
+        
+        with col3:
             st.metric(
                 label="📈 净流入地址",
                 value=f"{net_inflow_addresses:,}",
@@ -692,9 +739,9 @@ class StreamlitTokenFlowApp:
                 help=f"净流入为正的地址数量 (占比: {net_inflow_addresses/total_addresses*100:.1f}%) \n平均值基于 {len(real_inflow_df)} 个真实交易地址计算"
             )
         
-        with col3:
+        with col4:
             st.metric(
-                label="� 净流出地址",
+                label="📉 净流出地址",
                 value=f"{net_outflow_addresses:,}",
                 delta=f"平均: {self.format_tokens(avg_outflow_per_address)}",
                 delta_color="inverse",

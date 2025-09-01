@@ -66,6 +66,8 @@ class TokenFlowAnalyzer:
             
             if 'data' not in data:
                 print("❌ 数据文件格式错误，缺少 'data' 字段")
+                print(f"📋 当前文件结构包含的字段: {list(data.keys())}")
+                print("💡 提示: 数据文件应该包含 'data' 字段，格式如: {\"data\": [...]}")
                 return False
             
             # 🆕 优先从文件中的metadata获取代币总供应量
@@ -73,7 +75,25 @@ class TokenFlowAnalyzer:
             if 'metadata' in data:
                 # 检查是否有代币元数据（总供应量等）
                 metadata = data['metadata']
-                if 'actual_total_supply' in metadata:
+                
+                # 首先检查是否有完整的 token_metadata
+                if 'token_metadata' in metadata and metadata['token_metadata']:
+                    token_meta = metadata['token_metadata']
+                    self.token_metadata = token_meta
+                    if 'actual_total_supply' in token_meta:
+                        print(f"✅ 从文件中找到代币元数据，总供应量: {token_meta['actual_total_supply']:,.2f}")
+                    elif 'total_supply_raw' in token_meta and 'decimals' in token_meta:
+                        # 如果有原始供应量和小数位，计算实际供应量
+                        raw_supply = float(token_meta['total_supply_raw'])
+                        decimals = int(token_meta['decimals'])
+                        actual_supply = raw_supply / (10 ** decimals)
+                        token_meta['actual_total_supply'] = actual_supply
+                        self.token_metadata = token_meta
+                        print(f"✅ 从文件计算出总供应量: {actual_supply:,.2f}")
+                    else:
+                        print("✅ 从文件中找到代币元数据（但无供应量信息）")
+                # 旧格式兼容性检查
+                elif 'actual_total_supply' in metadata:
                     self.token_metadata = metadata
                     print(f"✅ 从文件中找到代币元数据，总供应量: {metadata['actual_total_supply']:,.2f}")
                 elif 'total_supply_raw' in metadata and 'decimals' in metadata:
