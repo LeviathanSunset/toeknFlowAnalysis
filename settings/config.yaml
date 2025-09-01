@@ -1,0 +1,62 @@
+# Solscan API 爬虫配置文件
+api:
+  base_url: "https://api-v2.solscan.io"
+  timeout: 30
+
+# 代理配置
+proxy:
+  enabled: true
+  http: "http://127.0.0.1:10808"
+  https: "http://127.0.0.1:10808"
+
+# 请求头配置
+headers:
+  accept: "application/json, text/plain, */*"
+  accept_encoding: "gzip, deflate, br, zstd"
+  accept_language: "en-US,en;q=0.9,zh-HK;q=0.8,zh-CN;q=0.7,zh;q=0.6,es-MX;q=0.5,es;q=0.4,ru-RU;q=0.3,ru;q=0.2"
+  origin: "https://solscan.io"
+  referer: "https://solscan.io/"
+  sec_ch_ua: '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"'
+  sec_ch_ua_mobile: "?0"
+  sec_ch_ua_platform: '"Windows"'
+  sec_fetch_dest: "empty"
+  sec_fetch_mode: "cors"
+  sec_fetch_site: "same-site"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+
+# Cookies配置 (敏感信息，请根据需要更新)
+cookies:
+  _ga: "GA1.1.1209325326.1754545638"
+  auth_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImtyaXNobmFnYWlraXNldHN1QGdtYWlsLmNvbSIsImFjdGlvbiI6ImxvZ2dlZCIsImlhdCI6MTc1NjY0MjUyNiwiZXhwIjoxNzY3NDQyNTI2fQ.Ejga0g4G9FHzfJK-ivUyfnWN35Q6LK5yg2X7DiDzK0Y"
+  cf_clearance: "VAEnet35ZE_TuS6LAYKZ6w5N.U4TG4TLSxBR_OHwM38-1756695046-1.2.1.1-Wvs8S6tDCDMbxMI_ek093UT6yc9sxcTDjEJM2mDzrmsvHnoir4G7fQVjg1yjMvGFiAGfVDsObcbbT4OFDMfmn2x6y0yU46rmmvbuqV.Kd7N8.poYB6DXlRo17iBGTns6H_Z1rcqY0b_MszAzrwoXhHaO6kp.z6Y5ScgW1riIvoF9TlFXm0Pt3ge8zwKdiU3vdXmh70C86YGPdHK2halQrE48iaTk.XvPGjLzVukHyAw"
+  _ga_PS3V7B7KV0: "GS2.1.s1756698958$o30$g0$t1756698977$j41$l0$h0"
+
+# 重试配置
+retry:
+  max_retries: 3
+  backoff_factor: 1
+  status_codes: [429, 500, 502, 503, 504]
+
+# 翻页配置
+pagination:
+  max_pages: 100           # 最大翻页数量，防止无限循环
+  delay_between_pages: 0.5 # 页面间延迟（秒）
+  retry_failed_pages: 2    # 失败页面重试次数
+
+# 默认查询参数
+default_params:
+  page_size: 100
+  remove_spam: false
+  exclude_amount_zero: true
+
+# 数据存储配置
+storage:
+  directory: "storage"
+  filename_format: "solscan_data_{timestamp}.json"
+
+# 目标代币配置 (示例)
+target_tokens:
+  - address: "5zCETicUCJqJ5Z3wbfFPZqtSpHPYqnggs1wX7ZRpump"
+    name: "SPARK"
+    symbol: "SPARK"
+    description: "Illusion of Life"
