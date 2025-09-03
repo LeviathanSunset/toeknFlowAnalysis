@@ -104,6 +104,7 @@ class SolscanAnalyzer:
             'accept-encoding': headers_config['accept_encoding'],
             'accept-language': headers_config['accept_language'],
             'origin': headers_config['origin'],
+            'priority': headers_config.get('priority', 'u=1, i'),  # 添加priority头
             'referer': headers_config['referer'],
             'sec-ch-ua': headers_config['sec_ch_ua'],
             'sec-ch-ua-mobile': headers_config['sec_ch_ua_mobile'],
@@ -119,7 +120,7 @@ class SolscanAnalyzer:
         cookies_config = self.config['cookies']
         return {
             '_ga': cookies_config['_ga'],
-            'auth-token': cookies_config['auth_token'],
+            'auth-token': cookies_config['auth_token'],  # 注意：使用连字符而不是下划线
             'cf_clearance': cookies_config['cf_clearance'],
             '_ga_PS3V7B7KV0': cookies_config['_ga_PS3V7B7KV0']
         }
